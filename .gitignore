@@ -2,3 +2,4 @@ out/
 *.pkg
 tests/*.exe
 logs/
+__pycache__/
