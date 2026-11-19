@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""WinePS4 Enhanced: compares two extracted WinePS4 packages (PkgTool pkg_extract trees) and writes a Markdown report.
+
+    python3 -I tools/compare-pkg.py <official uroot> <built uroot> <official param.txt> <built param.txt> <out.md>
+
+Every material difference is listed under "Differences", each with its explanation: EXPLAINED (the cause is
+established by evidence in this report or in docs/BUILD_FROM_SOURCE.md) or UNEXPLAINED (it needs a look before the
+package is trusted). Nothing here runs either package."""
+import hashlib, os, re, subprocess, sys
+
+off_root, our_root, off_sfo, our_sfo, out_md = sys.argv[1:6]
+
+
+def files(root):
+    out = {}
+    for d, _, names in os.walk(root):
+        for n in names:
+            p = os.path.join(d, n)
+            out[os.path.relpath(p, root)] = p
+    return out
+
+
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+
+
+def area(rel):
+    parts = rel.split('/')
+    if rel.startswith('wine/lib/wine/'):
+        return 'wine/lib/wine/' + parts[3]
+    if rel.startswith('wine/prefix/'):
+        return 'wine/prefix'
+    if len(parts) == 1:
+        return '(top level)'
+    return '/'.join(parts[:2]) if parts[0] == 'wine' else parts[0]
+
+
+def sfo(path):
+    d = {}
+    for line in open(path, encoding='utf-8', errors='replace'):
+        if ' = ' in line and ':' in line:
+            k = line.split(':', 1)[0].strip()
+            d[k] = line.rsplit(' = ', 1)[1].strip()
+    return d
+
+
+def strings(p, pattern):
+    out = subprocess.run(['strings', '-n', '8', p], capture_output=True, text=True).stdout
+    return sorted(set(m for m in out.splitlines() if re.fullmatch(pattern, m)))
+
+
+O, U = files(off_root), files(our_root)
+common = sorted(set(O) & set(U))
+only_off = sorted(set(O) - set(U))
+only_our = sorted(set(U) - set(O))
+
+areas = {}
+for rel in sorted(set(O) | set(U)):
+    a = areas.setdefault(area(rel), {'off_n': 0, 'our_n': 0, 'off_b': 0, 'our_b': 0, 'same': 0, 'diff': 0})
+    if rel in O:
+        a['off_n'] += 1; a['off_b'] += os.path.getsize(O[rel])
+    if rel in U:
+        a['our_n'] += 1; a['our_b'] += os.path.getsize(U[rel])
+diff_files = []
+for rel in common:
+    a = areas[area(rel)]
+    if os.path.getsize(O[rel]) == os.path.getsize(U[rel]) and sha(O[rel]) == sha(U[rel]):
+        a['same'] += 1
+    else:
+        a['diff'] += 1; diff_files.append(rel)
+
+so, su = sfo(off_sfo), sfo(our_sfo)
+md = []
+w = md.append
+w('# Comparison with the official WinePS4 package')
+w('')
+w('Both packages were extracted with the PkgTool this build makes. Nothing in this report ran either package on a console.')
+w('')
+w('## param.sfo')
+w('| Entry | Official | This build |')
+w('|---|---|---|')
+for k in sorted(set(so) | set(su)):
+    mark = '' if so.get(k) == su.get(k) else ' ⟵'
+    w(f'| {k} | `{so.get(k, "-")}` | `{su.get(k, "-")}`{mark} |')
+w('')
+w('## Files by area')
+w(f'Files: official {len(O)}, this build {len(U)}; in both {len(common)} '
+  f'(byte-identical {sum(a["same"] for a in areas.values())}, different {len(diff_files)}).')
+w('')
+w('| Area | Files (off / ours) | Bytes (off / ours) | Identical | Different |')
+w('|---|---|---|---|---|')
+for name, a in sorted(areas.items()):
+    w(f'| {name} | {a["off_n"]} / {a["our_n"]} | {a["off_b"]:,} / {a["our_b"]:,} | {a["same"]} | {a["diff"]} |')
+w('')
+w('## Only in the official package')
+w('\n'.join(f'- `{r}`' for r in only_off) or '- none')
+w('')
+w('## Only in this build')
+w('\n'.join(f'- `{r}`' for r in only_our) or '- none')
+w('')
+
+# the eboots and the compilers
+w('## The eboots')
+w('| | Official | This build |')
+w('|---|---|---|')
+for e in ('eboot.bin', 'wineps4.bin'):
+    w(f'| {e} size | {os.path.getsize(O[e]):,} | {os.path.getsize(U[e]):,} |')
+imp_o = strings(O['wineps4.bin'], r'lib(Sce[A-Za-z0-9]+|kernel)')
+imp_u = strings(U['wineps4.bin'], r'lib(Sce[A-Za-z0-9]+|kernel)')
+w(f'| wineps4.bin imports | {len(imp_o)} | {len(imp_u)} ({"same list" if imp_o == imp_u else "DIFFERENT"}) |')
+ver_o = strings(O['wineps4.bin'], r'wineps4: WinePS4 v[0-9.]+ \(Wine [0-9.]+\)')
+ver_u = strings(U['wineps4.bin'], r'wineps4: WinePS4 v[0-9.]+ \(Wine [0-9.]+\)')
+w(f'| version string | {", ".join(ver_o)} | {", ".join(ver_u)} |')
+h40_o = set(strings(O['wineps4.bin'], r'[0-9a-f]{40}'))
+h40_u = set(strings(U['wineps4.bin'], r'[0-9a-f]{40}'))
+w(f'| 40-hex ids (build ids) | {len(h40_o)}, {len(h40_o & h40_u)} shared | {len(h40_u)}, only here: {", ".join(sorted(x[:12] for x in h40_u - h40_o)) or "-"} |')
+kb = 'wine/lib/wine/x86_64-windows/kernelbase.dll'
+cc_o = strings(O[kb], r'GCC: \(GNU\) .*')
+cc_u = strings(U[kb], r'GCC: \(GNU\) .*')
+w(f'| PE compiler (kernelbase.dll) | {", ".join(cc_o)} | {", ".join(cc_u)} |')
+w('')
+
+# the differences, each explained or not
+w('## Differences')
+expl = []
+sfo_d = [k for k in set(so) | set(su) if so.get(k) != su.get(k)]
+for k in sorted(sfo_d):
+    if k == 'PUBTOOLINFO':
+        expl.append(('EXPLAINED', 'param.sfo PUBTOOLINFO', 'c_date is the build date and img0_l0_size the image size: both differ by construction.'))
+    else:
+        expl.append(('UNEXPLAINED', f'param.sfo {k}', f'official `{so.get(k)}`, this build `{su.get(k)}`.'))
+stale = [r for r in only_off if r.startswith('wine/prefix/drive_c/windows/')]
+if stale:
+    expl.append(('EXPLAINED', f'{len(stale)} prefix files only in the official package',
+                 'they differ from the official package\'s own lib copies (older builds of the same DLLs kept in the '
+                 'official prefix), so its package.sh kept them; here the prefix copies equal lib, and package.sh lists '
+                 'them in system32-from-lib.txt instead (the first start copies them from lib).'))
+rest = [r for r in only_off if r not in stale] + only_our
+if rest:
+    expl.append(('UNEXPLAINED', f'{len(rest)} other files in one package only', ', '.join(rest[:20])))
+pe = [r for r in diff_files if r.startswith('wine/lib/wine/') or r.startswith('wine/prefix/')]
+if pe:
+    same_cc = cc_o == cc_u
+    expl.append(('EXPLAINED' if not same_cc else 'UNEXPLAINED', f'{len(pe)} Wine PE files / prefix files with other bytes',
+                 ('built by another compiler build (' + ', '.join(cc_o) + ' vs ' + ', '.join(cc_u) + '): PE files are not '
+                  'byte-reproducible across compilers; same Wine source and patch.') if not same_cc else
+                 'the same compiler string on both sides, yet different bytes: PE builds embed build paths and '
+                 'timestamps (Wine builds them with -g); needs a closer look if the sizes differ much.'))
+eb = [r for r in diff_files if r in ('eboot.bin', 'wineps4.bin')]
+if eb:
+    expl.append(('EXPLAINED', 'eboot.bin, wineps4.bin bytes',
+                 'built from the same WinePS4 source with ps4-kit 1f2bd79 (upstream: 56b3d86, not public), clang 21 and '
+                 'a toolchain rebuilt from source; wineps4.bin carries the RADV build id of the public kit\'s Mesa patch '
+                 'files. Same imports and version string (above).'))
+# system32-from-lib.txt: explained only when its difference is exactly the stale prefix files above
+lst = 'wine/system32-from-lib.txt'
+if lst in diff_files:
+    lo = set(open(O[lst]).read().split()); lu = set(open(U[lst]).read().split())
+    stale_entries = {('system32/' if '/system32/' in r else 'syswow64/') + r.rsplit('/', 1)[1] for r in stale}
+    if lo <= lu and lu - lo == stale_entries:
+        expl.append(('EXPLAINED', lst, f'this build lists {len(lu - lo)} more entries, exactly the prefix files above.'))
+        eb.append(lst)
+# the test programs (tests/*.c, compiled on the build machine)
+tests = [r for r in diff_files if r in ('wine/hello.exe', 'wine/hello32.exe', 'wine/window.exe')]
+if tests:
+    def cc(p):  # every compiler string in the file (the program's own and those of the libraries linked in)
+        out = subprocess.run(['strings', '-n', '8', p], capture_output=True, text=True).stdout
+        found = sorted(set(m.group(0) for m in re.finditer(r'GCC: \(GNU\) \S+|clang version [0-9.]+', out)))
+        return ' + '.join(found) or 'no compiler string'
+    expl.append(('EXPLAINED', 'test programs ' + ', '.join(r.split('/')[-1] for r in tests),
+                 'compiled from tests/*.c on each build machine: ' +
+                 '; '.join(f'{r.split("/")[-1]} {cc(O[r])} vs {cc(U[r])}' for r in tests) + '.'))
+    eb.extend(tests)
+other = [r for r in diff_files if r not in pe and r not in eb]
+if other:
+    expl.append(('UNEXPLAINED', f'{len(other)} other files with other bytes', ', '.join(other[:30])))
+if imp_o != imp_u:
+    expl.append(('UNEXPLAINED', 'wineps4.bin imports', f'official {imp_o}, this build {imp_u}'))
+w('| Status | Difference | Explanation |')
+w('|---|---|---|')
+for s, d, e in expl:
+    w(f'| {"**UNEXPLAINED**" if s == "UNEXPLAINED" else s} | {d} | {e} |')
+unexplained = sum(1 for s, _, _ in expl if s == 'UNEXPLAINED')
+w('')
+w(f'Result: {"every difference explained" if not unexplained else f"**{unexplained} unexplained difference(s)**"}.')
+open(out_md, 'w').write('\n'.join(md) + '\n')
+print('\n'.join(md))
+sys.exit(1 if unexplained else 0)

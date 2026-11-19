@@ -1,5 +1,7 @@
-# WinePS4 Enhanced: builds WinePS4's PKG from public sources only (tools/ci-build.sh, docs/BUILD_FROM_SOURCE.md) and
-# publishes it as a GitHub pre-release. Run it from the Actions tab ("Run workflow").
+# WinePS4 Enhanced: builds WinePS4's PKG from public sources only (tools/ci-build.sh, docs/BUILD_FROM_SOURCE.md),
+# checks it (tools/verify-pkg.sh), compares it with the official package (tools/compare-pkg.sh), writes its manifest
+# (tools/build-manifest.sh) and, only when all of that passed, publishes it as an UNTESTED DEVICE BUILD pre-release.
+# Run it from the Actions tab ("Run workflow").
 name: Build PKG
 
 on:
@@ -15,7 +17,7 @@ on:
         type: choice
         options: [posix, win32]
       publish:
-        description: "Publish the PKG as a pre-release"
+        description: "Publish the PKG as an UNTESTED DEVICE BUILD pre-release (only if every check passed)"
         default: true
         type: boolean
 
@@ -43,45 +45,77 @@ jobs:
 
       - name: Host packages
         timeout-minutes: 20
-        run: tools/ci-build.sh deps
+        run: |
+          mkdir -p out
+          set -o pipefail
+          tools/ci-build.sh deps 2>&1 | tee out/ci-build.log
 
       - name: Build
         timeout-minutes: 300
-        run: tools/ci-build.sh all
+        run: |
+          set -o pipefail
+          tools/ci-build.sh all 2>&1 | tee -a out/ci-build.log
 
-      - name: Build logs
+      - name: Verify the package
+        timeout-minutes: 30
+        run: |
+          set -o pipefail
+          tools/ci-build.sh verify 2>&1 | tee -a out/ci-build.log
+
+      - name: Compare with the official package
+        timeout-minutes: 40
+        run: |
+          set -o pipefail
+          tools/ci-build.sh compare 2>&1 | tee -a out/ci-build.log
+
+      - name: Manifest and logs
         if: always()
         run: |
+          tools/ci-build.sh manifest 2>&1 | tee -a out/ci-build.log || true
+          df -h / | tee -a out/ci-build.log
           mkdir -p logs-out
+          cp out/*.md out/*.tsv out/SHA256SUMS out/ci-build.log logs-out/ 2>/dev/null || true
           cp -r ~/ps4kit-build/logs logs-out/ps4kit 2>/dev/null || true
           cp ~/wine-ps4-build/build/wine-wow64/*.log logs-out/ 2>/dev/null || true
+          cp ~/wine-ps4-build/prefix.log logs-out/ 2>/dev/null || true
           cp ~/oo-src/*.log logs-out/ 2>/dev/null || true
+          tar -czf build-logs.tar.gz -C logs-out .
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-logs
+          name: build-logs-${{ github.run_number }}
           path: logs-out
-          retention-days: 14
+          retention-days: 90
 
-      - name: Publish pre-release
-        if: ${{ inputs.publish }}
+      - name: Publish the UNTESTED DEVICE BUILD pre-release
+        if: ${{ success() && inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PKG="out/WinePS4-v${WINEPS4_VERSION}.pkg"
           SHA=$(sha256sum "$PKG" | cut -d' ' -f1)
-          TAG="build-v${WINEPS4_VERSION}-${GITHUB_RUN_NUMBER}"
-          cat > notes.md <<EOF
-          **Unofficial build from public sources. Not tested on a console by this pipeline.**
-
-          WinePS4 v${WINEPS4_VERSION} (upstream iHaiDeeZ/WinePS4), built by tools/ci-build.sh from commit ${GITHUB_SHA}.
-          See docs/BUILD_FROM_SOURCE.md for what differs from the official build.
-
-          - mingw-w64 variant: ${MINGW_THREADS}
-          - sha256: \`${SHA}\`
-
-          Install it like the official package (GoldHEN Package Installer). Your files in /data/WinePS4 stay.
-          Keep the official package at hand to go back to.
-          EOF
-          gh release create "$TAG" "$PKG" --prerelease --target "$GITHUB_SHA" \
-            --title "WinePS4 v${WINEPS4_VERSION} (source build #${GITHUB_RUN_NUMBER})" --notes-file notes.md
+          TAG="untested-build-v${WINEPS4_VERSION}-${GITHUB_RUN_NUMBER}"
+          gzip -c out/ci-build.log > ci-build.log.gz
+          {
+            echo "## ⚠️ UNTESTED DEVICE BUILD"
+            echo
+            echo "**Built from public sources. Not installed or run on a console by anyone yet.** Evidence level:"
+            echo "BUILD-VERIFIED (VERIFY.md) and compared with the official v${WINEPS4_VERSION} package (COMPARISON.md)."
+            echo "Keep the official package at hand to go back to."
+            echo
+            echo "- Upstream: iHaiDeeZ/WinePS4 v${WINEPS4_VERSION}, built from this repository at ${GITHUB_SHA}"
+            echo "- mingw-w64 variant: ${MINGW_THREADS}"
+            echo "- PKG sha256: \`${SHA}\`"
+            echo "- Every source commit, archive checksum, download retry and build stage: BUILD_MANIFEST.md"
+            echo "- Full build log: ci-build.log.gz; all logs: build-logs.tar.gz"
+            echo
+            echo "### Verification"
+            grep -m1 '^Result:' out/VERIFY.md
+            echo
+            echo "### Differences from the official package"
+            sed -n '/^## Differences/,$p' out/COMPARISON.md | tail -n +2
+          } > notes.md
+          gh release create "$TAG" "$PKG" out/SHA256SUMS out/BUILD_MANIFEST.md out/VERIFY.md out/COMPARISON.md \
+            ci-build.log.gz build-logs.tar.gz --prerelease --target "$GITHUB_SHA" \
+            --title "UNTESTED DEVICE BUILD: WinePS4 v${WINEPS4_VERSION} (source build #${GITHUB_RUN_NUMBER})" \
+            --notes-file notes.md

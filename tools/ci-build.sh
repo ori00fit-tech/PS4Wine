@@ -35,20 +35,47 @@ deps() {
     $SUDO mkdir -p /opt/pacbrew && $SUDO chown "$(id -u):$(id -g)" /opt/pacbrew
 }
 
-all() {
-    step "OpenOrbis toolchain";  "$ROOT/tools/build-openorbis.sh"
-    step "ps4-kit";              "$ROOT/tools/setup-ps4-kit.sh"
-    step "PS4 libraries";        "$ROOT/tools/build-sysroot.sh"
-    step "Mesa/RADV";            bash "$HOME/ps4-kit/gpu/build-mesa.sh" > "$HOME/ps4kit-build/logs/mesa-run.log" 2>&1
+# stage <name> <command...>: one build stage, recorded in out/stages.tsv (name, start, end, seconds, result);
+# a stage that fails is recorded as failed and stops the build
+stage() {
+    local name="$1" t0 t1 rc=0; shift
+    mkdir -p "$ROOT/out"; [ -f "$ROOT/out/stages.tsv" ] || printf 'stage\tstart_utc\tend_utc\tseconds\tresult\n' > "$ROOT/out/stages.tsv"
+    step "$name"; t0=$(date -u +%s)
+    "$@" || rc=$?
+    t1=$(date -u +%s)
+    printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$(date -u -d @"$t0" +%FT%TZ)" "$(date -u -d @"$t1" +%FT%TZ)" $((t1 - t0)) \
+        "$([ $rc = 0 ] && echo ok || echo "failed ($rc)")" >> "$ROOT/out/stages.tsv"
+    [ $rc = 0 ] || { echo "stage '$name' failed with exit code $rc" >&2; exit $rc; }
+}
+
+mesa() {
+    bash "$HOME/ps4-kit/gpu/build-mesa.sh" > "$HOME/ps4kit-build/logs/mesa-run.log" 2>&1
     tail -1 "$HOME/ps4kit-build/logs/mesa-run.log"
-    step "DXVK 3.1.1"
-    mkdir -p "$HOME/wineps4-build" && curl -sSfL -o /tmp/dxvk-3.1.1.tar.gz \
-        https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz
-    echo "40565b4a724aadc4433fa4e010b4b23916d9b1f1baeee64e17186db94f54e608  /tmp/dxvk-3.1.1.tar.gz" | sha256sum -c -
-    tar -xzf /tmp/dxvk-3.1.1.tar.gz -C "$HOME/wineps4-build"
-    step "Wine, prefix, tests, app, package"; "$ROOT/tools/build-wineps4.sh"
+}
+
+dxvk() {
+    # (through build-sysroot.sh's fetch: the pinned sha256, and the attempt in downloads.tsv)
+    "$ROOT/tools/build-sysroot.sh" dxvk
+}
+
+all() {
+    stage "OpenOrbis toolchain"               "$ROOT/tools/build-openorbis.sh"
+    stage "ps4-kit, libc++, kit runtime"      "$ROOT/tools/setup-ps4-kit.sh"
+    stage "PS4 libraries (sysroot)"           "$ROOT/tools/build-sysroot.sh"
+    stage "Mesa/RADV"                         mesa
+    stage "DXVK 3.1.1"                        dxvk
+    stage "Wine host build"                   "$ROOT/tools/build-wineps4.sh" wine
+    stage "Wine prefix"                       "$ROOT/tools/build-wineps4.sh" prefix
+    stage "Test programs"                     "$ROOT/tools/build-wineps4.sh" tests
+    stage "WinePS4 app (wineps4.bin, eboot)"  "$ROOT/tools/build-wineps4.sh" app
+    stage "PKG"                               "$ROOT/tools/build-wineps4.sh" package
     ls -la "$ROOT/out/"
 }
 
-WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(deps all)
+# the acceptance checks (both exit non-zero on a failure, which stops the build before anything is published)
+verify()  { stage "Verify the PKG"                          "$ROOT/tools/verify-pkg.sh"; }
+compare() { stage "Compare with the official package"       "$ROOT/tools/compare-pkg.sh"; }
+manifest() { "$ROOT/tools/build-manifest.sh" > /dev/null; echo "out/BUILD_MANIFEST.md written"; }
+
+WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(deps all verify compare manifest)
 for w in "${WHAT[@]}"; do "$w"; done

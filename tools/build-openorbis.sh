@@ -30,7 +30,7 @@ fetch() {
 }
 
 step_fetch() {
-    fetch ps4-openorbis   https://github.com/PacBrew/ps4-openorbis.git            HEAD
+    fetch ps4-openorbis   https://github.com/PacBrew/ps4-openorbis.git            16f27e38760ea21eaf1187d0edbf4342c4a44021
     fetch headers         https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain.git cd480230b946239f758333ef0dff40d67c5f0c20
     fetch musl            https://github.com/PacBrew/ps4-openorbis-musl.git       140a653299ffcb1457bc63a5ab1f507d7bb37c54
     # create-fself: not PacBrew's 30d2e10 (2021), which writes the data PT_LOAD twice when .data.rel.ro is large
@@ -96,8 +96,8 @@ step_vars() {
 # libSceLibcInternal.so (no malloc: musl's wrappers get those).
 PS4LIBDOC_BRANCH="${PS4LIBDOC_BRANCH:-9.00}"
 step_libs() {
-    fetch orbis-lib-gen  https://github.com/OpenOrbis/orbis-lib-gen.git HEAD
-    fetch ps4libdoc      https://github.com/idc/ps4libdoc.git            "$PS4LIBDOC_BRANCH"
+    fetch orbis-lib-gen  https://github.com/OpenOrbis/orbis-lib-gen.git 8443a656ba40a6c6212ac2e03164019d78268131
+    fetch ps4libdoc      https://github.com/idc/ps4libdoc.git            "${PS4LIBDOC_COMMIT:-a71315e7f36e312ae71e9e3a92982e9ffbfc725f}"  # (branch 9.00)
     local g="$SRC/orbis-lib-gen" n=0 f
     rm -rf "$g/build"; mkdir -p "$g/build/out"
     (cd "$g" && python3 generate.py "$SRC/ps4libdoc/system/common/lib" > "$SRC/libgen.log" 2>&1)

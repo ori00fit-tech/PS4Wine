@@ -19,16 +19,13 @@ DL="$PSB/src/downloads"; mkdir -p "$DL" "$PSB/logs"
 WB="$HOME/wineps4-build"; mkdir -p "$WB"
 ZLIB_VER=1.3.1 OPENSSL_VER="${OPENSSL_VER:-3.5.4}" FREETYPE_VER=2.13.3 FFMPEG_VER=7.1.1
 
-# get <url> <file>: download once
-get() {
-    [ -s "$DL/$2" ] && return 0
-    if curl -sSfL --connect-timeout 30 --retry 3 --retry-delay 5 -o "$DL/$2.part" "$1"; then mv -f "$DL/$2.part" "$DL/$2"; return 0; fi
-    rm -f "$DL/$2.part"; echo "download failed: $1" >&2; return 1
-}
+DL_LOG="$PSB/logs/downloads.tsv"
+source "$(dirname "$0")/lib-fetch.sh"
 unpack() { rm -rf "$PSB/src/$2"; mkdir -p "$PSB/src"; tar -xf "$DL/$1" -C "$PSB/src"; }
 
 do_zlib() {
-    get "https://zlib.net/fossils/zlib-$ZLIB_VER.tar.gz" zlib-$ZLIB_VER.tar.gz
+    fetch zlib-$ZLIB_VER.tar.gz 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23 \
+        "https://zlib.net/fossils/zlib-$ZLIB_VER.tar.gz" "https://github.com/madler/zlib/releases/download/v$ZLIB_VER/zlib-$ZLIB_VER.tar.gz"
     unpack zlib-$ZLIB_VER.tar.gz zlib-$ZLIB_VER
     cd "$PSB/src/zlib-$ZLIB_VER"
     CC="$TC/ps4-cc" AR="$PS4_AR" RANLIB="$PS4_RANLIB" CFLAGS="-O2 -fPIC" ./configure --static --prefix="$PS4_SYSROOT" > "$PSB/logs/zlib.log" 2>&1
@@ -38,8 +35,9 @@ do_zlib() {
 }
 
 do_openssl() {
-    get "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" openssl-$OPENSSL_VER.tar.gz ||
-        get "https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz" openssl-$OPENSSL_VER.tar.gz
+    fetch openssl-$OPENSSL_VER.tar.gz 967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99 \
+        "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" \
+        "https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz"
     unpack openssl-$OPENSSL_VER.tar.gz openssl-$OPENSSL_VER
     cd "$PSB/src/openssl-$OPENSSL_VER"
     # BSD-x86_64: the PS4's kernel is FreeBSD's. libcrypto only; no engines, modules or async (ucontext).
@@ -53,9 +51,9 @@ do_openssl() {
 
 do_freetype() {
     # (SourceForge first: savannah.gnu.org did not answer from GitHub's runners; both serve the same file)
-    get "https://downloads.sourceforge.net/project/freetype/freetype2/$FREETYPE_VER/freetype-$FREETYPE_VER.tar.xz" freetype-$FREETYPE_VER.tar.xz ||
-        get "https://download.savannah.gnu.org/releases/freetype/freetype-$FREETYPE_VER.tar.xz" freetype-$FREETYPE_VER.tar.xz
-    echo "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289  $DL/freetype-$FREETYPE_VER.tar.xz" | sha256sum -c -
+    fetch freetype-$FREETYPE_VER.tar.xz 0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289 \
+        "https://downloads.sourceforge.net/project/freetype/freetype2/$FREETYPE_VER/freetype-$FREETYPE_VER.tar.xz" \
+        "https://download.savannah.gnu.org/releases/freetype/freetype-$FREETYPE_VER.tar.xz"
     unpack freetype-$FREETYPE_VER.tar.xz freetype-$FREETYPE_VER
     local b="$PSB/build/freetype"; rm -rf "$b"
     ps4_cmake -S "$PSB/src/freetype-$FREETYPE_VER" -B "$b" -G Ninja -DCMAKE_INSTALL_PREFIX="$WB/freetype" \
@@ -70,7 +68,8 @@ do_freetype() {
 
 do_ffmpeg() {
     need nasm
-    get "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VER.tar.xz" ffmpeg-$FFMPEG_VER.tar.xz
+    fetch ffmpeg-$FFMPEG_VER.tar.xz 733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1 \
+        "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VER.tar.xz" "https://www.ffmpeg.org/releases/ffmpeg-$FFMPEG_VER.tar.xz"
     unpack ffmpeg-$FFMPEG_VER.tar.xz ffmpeg-$FFMPEG_VER
     # scripts/build-ffmpeg-img.sh, with this tree's source and ps4-kit's wrappers in place of RPCS3's
     sed -e "s#^SRC=.*#SRC=\"$PSB/src/ffmpeg-$FFMPEG_VER\"#" -e "s#^TC=.*#TC=\"$TC\"#" \
@@ -117,6 +116,14 @@ do_fmt() {
     gitsrc fmt https://github.com/fmtlib/fmt.git 11.2.0
     rm -rf "$PS4_SYSROOT/include/fmt"; cp -r "$PSB/src/fmt/include/fmt" "$PS4_SYSROOT/include/"
     ls "$PS4_SYSROOT/include/fmt/format.h"
+}
+
+# DXVK 3.1.1's release, unchanged (app/package.sh copies its DLLs): ~/wineps4-build/dxvk-3.1.1
+do_dxvk() {
+    fetch dxvk-3.1.1.tar.gz 40565b4a724aadc4433fa4e010b4b23916d9b1f1baeee64e17186db94f54e608 \
+        "https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz"
+    rm -rf "$WB/dxvk-3.1.1"; tar -xzf "$DL/dxvk-3.1.1.tar.gz" -C "$WB"
+    ls "$WB/dxvk-3.1.1/x64/d3d11.dll" "$WB/dxvk-3.1.1/x32/d3d11.dll"
 }
 
 WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(zlib openssl freetype ffmpeg fmt libsmb2 libnfs)
