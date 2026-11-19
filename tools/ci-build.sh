@@ -17,11 +17,14 @@ step() { echo; echo "=== $* ($(date -u +%H:%M:%S))"; }
 deps() {
     step "host packages"
     export DEBIAN_FRONTEND=noninteractive
+    # (run #2 stood 24 min in this step, run #1 took 1 min: every apt download gets a timeout and retries)
+    printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' |
+        $SUDO tee /etc/apt/apt.conf.d/80-wineps4-retries > /dev/null
     $SUDO apt-get update -q
     $SUDO apt-get install -y -q flex bison mingw-w64 meson ninja-build cmake pkg-config autoconf automake libtool \
         gettext rsync python3-mako python3-yaml python3-venv glslang-tools nasm unzip zip xz-utils file patch \
         gcc-multilib libc6-dev-i386 dotnet-sdk-8.0 gnupg wget curl
-    wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && $SUDO bash /tmp/llvm.sh 21
+    wget -q --timeout=30 --tries=5 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && $SUDO bash /tmp/llvm.sh 21
     $SUDO apt-get install -y -q clang-21 lld-21 llvm-21 llvm-21-tools
     if [ "${MINGW_THREADS:-posix}" = posix ]; then
         local t

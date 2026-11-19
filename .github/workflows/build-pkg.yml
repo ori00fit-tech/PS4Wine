@@ -42,9 +42,11 @@ jobs:
           df -h /
 
       - name: Host packages
+        timeout-minutes: 20
         run: tools/ci-build.sh deps
 
       - name: Build
+        timeout-minutes: 300
         run: tools/ci-build.sh all
 
       - name: Build logs
