@@ -40,7 +40,7 @@ do_wine() {
     echo "wine: $(git -C "$SRC" log --oneline wine-11.0..HEAD 2>/dev/null | wc -l) WinePS4 commits on wine-11.0"
     local i386_cc="${WINE_I386_CC-clang-21}"   # (unset: clang-21; set empty: configure's own choice)
     mkdir -p "$BLD" && cd "$BLD"
-    [ -f Makefile ] || "$SRC/configure" --enable-archs=i386,x86_64 --prefix="$INST" \
+    [ -f Makefile ] || "$(realpath --relative-to="$BLD" "$SRC")/configure" --enable-archs=i386,x86_64 --prefix="$INST" \
         --without-x --without-wayland --without-freetype --without-gstreamer --without-pulse --without-alsa \
         --without-oss --without-cups --without-dbus --without-sane --without-krb5 --without-gphoto \
         --without-opencl --without-pcap --without-usb --without-v4l2 --without-netapi --without-gnutls \
