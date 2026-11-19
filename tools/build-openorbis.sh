@@ -102,6 +102,8 @@ step_libs() {
         "$CLANG" --target=x86_64-pc-freebsd12-elf -fuse-ld=lld -shared -nostdlib "$g/build/$name.o" -o "$g/build/out/$name.so"
         n=$((n + 1))
     done
+    # (not libc.so: -lc must find musl's libc.a, the C library the toolchain links)
+    rm -f "$g/build/out/libc.so"
     cp "$g"/build/out/*.so "$OO/lib/"
     install -m644 "$SRC/ps4-openorbis/orbis-lib-gen/libSceLibcInternal.so" "$OO/lib/libSceLibcInternal.so"
     echo "libs: $n stub libraries"
@@ -141,5 +143,15 @@ step_llvmrt() {
     ls -la "$OO/lib/libclang_rt.builtins-x86_64.a" "$OO/lib/libunwind.a"
 }
 
-STEPS=("$@"); [ ${#STEPS[@]} -gt 0 ] || STEPS=(fetch headers musl fself vars libs llvmrt)
+# bin (PacBrew ps4-openorbis-clang's place): clang, ld.lld and the LLVM tools in $OO/bin, as links to the
+# host's LLVM 21 (PacBrew's cmake/ps4.cmake and ps4vars.sh call them there)
+step_bin() {
+    local t
+    for t in clang clang++ ld.lld llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-strip llvm-objdump llvm-readelf; do
+        ln -sfn "$(command -v "$t-${CLANG##*-}")" "$OO/bin/$t"
+    done
+    ls "$OO/bin"
+}
+
+STEPS=("$@"); [ ${#STEPS[@]} -gt 0 ] || STEPS=(fetch bin headers musl fself vars libs llvmrt)
 for s in "${STEPS[@]}"; do echo "--- $s"; "step_$s"; done
