@@ -35,7 +35,7 @@ do_wine() {
         --without-oss --without-cups --without-dbus --without-sane --without-krb5 --without-gphoto \
         --without-opencl --without-pcap --without-usb --without-v4l2 --without-netapi --without-gnutls \
         --without-sdl --without-udev --without-capi --without-pcsclite --without-ffmpeg --without-opengl \
-        --without-fontconfig > configure.log 2>&1
+        --without-fontconfig ${WINE_CONFIGURE_EXTRA:-} > configure.log 2>&1
     # the host gap: wineps4.drv's Unix half (see the top)
     make -j"$JOBS" dlls/ntdll/ntdll.so dlls/win32u/win32u.so > make-host-gap.log 2>&1
     make dlls/wineps4.drv/audio.o CFLAGS='-g -O2 -Dsun_len=sun_path[0]' >> make-host-gap.log 2>&1

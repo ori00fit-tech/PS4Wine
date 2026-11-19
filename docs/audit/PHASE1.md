@@ -1,11 +1,11 @@
 # WinePS4 Enhanced — Phase 1: Direct Memory Allocator Investigation (read-only)
 
-Date: 2026-11-19 · Baseline: upstream `v00.71` (`fd9595f`), ps4-kit public `79d173b` · Target console: PS4 Slim, **FW 13.50**
+Date: 2026-11-19 · Baseline: upstream `v00.71` (`fd9595f`), ps4-kit public `79d173b` · Target console: PS4 Slim, **FW 12.50** (GoldHEN v2.4b18.10, Baikal B1)
 No code was changed. Tags: **CODE-VERIFIED**, **DOC-VERIFIED** (upstream NOTES.md, not re-checked), **UNVERIFIED**.
 
-> FW correction vs Phase 0: the console is on 13.50, not 12.50. Upstream measured on 13.52, so Phase 0 risk B7
-> drops from high to low. The kernel struct offsets still need one confirmation run (the freeze report prints its
-> own layout check: `NOTES.md:781`).
+> Firmware: the console's System Information shows HEN 12.50 (GoldHEN v2.4b18.10). Upstream measured on 13.52.
+> The official v00.71 starts on 12.50, but the kernel struct offsets the freeze report reads still need one
+> confirmation run (the freeze report prints its own layout check: `NOTES.md:781`).
 
 ---
 
@@ -111,7 +111,7 @@ reconciled today, so a baseline built on them would be misleading.
 **Yes.** Every value the design below needs is either already a static variable in `ps4_wine_vm.c`, or available
 from a read-only kernel query that is already used elsewhere (`sceKernelVirtualQuery`,
 `sceKernelAvailableDirectMemorySize`). No allocation, mapping or release path has to change. CODE-VERIFIED
-(the variables exist). The new queries' exact semantics on 13.50 are UNVERIFIED (see risks).
+(the variables exist). The new queries' exact semantics on 12.50 are UNVERIFIED (see risks).
 
 ---
 
@@ -187,7 +187,7 @@ No change to the app is needed for the program itself.
 
 | Risk | Mitigation |
 |---|---|
-| `sceKernelAvailableDirectMemorySize` window semantics on 13.50 (does `start` give the next free run?) are UNVERIFIED | First run: log both the enumeration and the largest-run figure, and cross-check against a known allocation (T1) |
+| `sceKernelAvailableDirectMemorySize` window semantics on 12.50 (does `start` give the next free run?) are UNVERIFIED | First run: log both the enumeration and the largest-run figure, and cross-check against a known allocation (T1) |
 | `ps4_vm_get_stats` takes `vm_lock`. Calling it from the freeze watch or a signal handler could stand. | Only call it from the stats thread. The freeze paths keep the existing lock-free `ps4_vm_backed_bytes`. |
 | A longer STAT message | Same binary on both ends. Append-only fields. |
 | Enumerating the free runs costs kernel calls | Desktop only, every 10 s with the Perf log, bounded loop (≤ 80 iterations) |

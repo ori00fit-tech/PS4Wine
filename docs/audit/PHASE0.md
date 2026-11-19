@@ -21,7 +21,7 @@ Evidence tags: **CODE-VERIFIED** (read in source), **DOC-VERIFIED** (stated in u
 | B4 | Public ps4-kit includes Mesa patch **0032** (2026-11-17, after v00.71), which changes RADV pipeline switching. Building from today's kit gives a RADV that differs from the release. To be close to v00.71, use the series up to 0031. | CODE-VERIFIED |
 | B5 | ps4-kit's **sysroot is not reproducible from public sources**: `scripts/seed-build-tree.sh` copies it from `~/vita3k-build/sysroot`, a private tree of another port. It holds OpenSSL (`libcrypto.a`, which WinePS4 links for bcrypt), zlib, FFmpeg and others. No script in either repo builds OpenSSL or zlib for the PS4. `prepare-sysroot.sh` / `build-libcxx.sh` rebuild only the libc overlay and libc++. | CODE-VERIFIED |
 | B6 | `docs/BUILDING.md` and `app/package.sh` mention `scripts/build-host-wine.sh` and `scripts/make-prefix.sh`. **Neither file is in the repo**. BUILDING.md gives the commands inline instead. | CODE-VERIFIED |
-| B7 | **Upstream's only recorded test console is FW 13.52** (`NOTES.md:3`, "Probe v00.01 ... FW 13.52"). Your console is on **FW 13.50** (corrected by the user; first written as 12.50), close to 13.52, so this risk is low. The kernel struct offsets the freeze report reads (`kinfo_proc` 1096-byte records, `NOTES.md:687,781`), the budget syscalls and the direct-memory aliasing behaviour were all measured on 13.52 only. | DOC-VERIFIED |
+| B7 | **Upstream's only recorded test console is FW 13.52** (`NOTES.md:3`, "Probe v00.01 ... FW 13.52"). The console's System Information shows **HEN 12.50** (GoldHEN v2.4b18.10, Southbridge Baikal B1, PS4 Slim), not 13.52. The official v00.71 package does start on it (DEVICE-TESTED 2026-11-19: "Windows is ready, 156.3 s after the app started"). The kernel struct offsets the freeze report reads (`kinfo_proc` 1096-byte records, `NOTES.md:687,781`), the budget syscalls and the direct-memory aliasing behaviour were all measured on 13.52 only. | DOC-VERIFIED |
 | B8 | **v00.71 itself was never confirmed on a console.** NOTES ends with "To check: the priorities line; Iron Snout's RADV starting; no freeze when a game starts or closes" (`NOTES.md:829`). The v00.71 baseline is a release whose main fix (thread priorities) is untested. | DOC-VERIFIED |
 
 ---
@@ -182,7 +182,7 @@ Configuration surface (env.txt) found in the code: `WINEPS4_VM_LOG`, `WINEPS4_DI
 2. **Phase 3E (Direct Shared Memory)** should move from "advanced step" to "known-negative, retest only" (M7).
 3. **Phase 2 baseline needs M2 fixed first, or at least understood.** Today's Task Manager memory figure can't
    show reclamation correctly.
-4. **Firmware**: the console is on 13.50 (upstream measured on 13.52). Still record the GoldHEN version.
+4. **Firmware**: the console is on 12.50 with GoldHEN v2.4b18.10 (upstream measured on 13.52). The official v00.71 starts there.
 5. The repo's licence is LGPL-2.1-or-later and ps4-kit is MIT. Keep `LICENSE` and `CREDITS.md` in the fork.
 
 ---

@@ -1,0 +1,85 @@
+# WinePS4 Enhanced: builds WinePS4's PKG from public sources only (tools/ci-build.sh, docs/BUILD_FROM_SOURCE.md) and
+# publishes it as a GitHub pre-release. Run it from the Actions tab ("Run workflow").
+name: Build PKG
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "WINEPS4_VERSION shown in the app (e.g. 00.71)"
+        default: "00.71"
+        required: true
+      mingw_threads:
+        description: "mingw-w64 variant for Wine's PE side (posix = as the official v00.71 package)"
+        default: "posix"
+        type: choice
+        options: [posix, win32]
+      publish:
+        description: "Publish the PKG as a pre-release"
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      WINEPS4_VERSION: ${{ inputs.version }}
+      MINGW_THREADS: ${{ inputs.mingw_threads }}
+      WINE_CONFIGURE_EXTRA: --disable-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/powershell /usr/share/dotnet /usr/local/share/chromium
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
+      - name: Host packages
+        run: tools/ci-build.sh deps
+
+      - name: Build
+        run: tools/ci-build.sh all
+
+      - name: Build logs
+        if: always()
+        run: |
+          mkdir -p logs-out
+          cp -r ~/ps4kit-build/logs logs-out/ps4kit 2>/dev/null || true
+          cp ~/wine-ps4-build/build/wine-wow64/*.log logs-out/ 2>/dev/null || true
+          cp ~/oo-src/*.log logs-out/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-logs
+          path: logs-out
+          retention-days: 14
+
+      - name: Publish pre-release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PKG="out/WinePS4-v${WINEPS4_VERSION}.pkg"
+          SHA=$(sha256sum "$PKG" | cut -d' ' -f1)
+          TAG="build-v${WINEPS4_VERSION}-${GITHUB_RUN_NUMBER}"
+          cat > notes.md <<EOF
+          **Unofficial build from public sources. Not tested on a console by this pipeline.**
+
+          WinePS4 v${WINEPS4_VERSION} (upstream iHaiDeeZ/WinePS4), built by tools/ci-build.sh from commit ${GITHUB_SHA}.
+          See docs/BUILD_FROM_SOURCE.md for what differs from the official build.
+
+          - mingw-w64 variant: ${MINGW_THREADS}
+          - sha256: \`${SHA}\`
+
+          Install it like the official package (GoldHEN Package Installer). Your files in /data/WinePS4 stay.
+          Keep the official package at hand to go back to.
+          EOF
+          gh release create "$TAG" "$PKG" --prerelease --target "$GITHUB_SHA" \
+            --title "WinePS4 v${WINEPS4_VERSION} (source build #${GITHUB_RUN_NUMBER})" --notes-file notes.md
