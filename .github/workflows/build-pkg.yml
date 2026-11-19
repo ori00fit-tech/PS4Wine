@@ -18,7 +18,7 @@ on:
         options: [posix, win32]
       publish:
         description: "Publish the PKG as an UNTESTED DEVICE BUILD pre-release (only if every check passed)"
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -32,7 +32,18 @@ jobs:
       WINEPS4_VERSION: ${{ inputs.version }}
       MINGW_THREADS: ${{ inputs.mingw_threads }}
       WINE_CONFIGURE_EXTRA: --disable-tests
+      # The Windows side as the official v00.71 was built (tools/build-wineps4.sh): i386 with clang, no translations
+      WINE_I386_CC: clang-21
+      WINE_GETTEXT: "no"
+      # Reproduction settings for the comparison with the official package, read from it: its DWARF records the build
+      # in /home/shiro/wine-ps4-build/build/wine-wow64, its user.reg the prefix user "shiro". Building in the same
+      # places keeps paths and user names from hiding real differences. They change nothing on the console.
+      HOME: /home/shiro
+      WINE_PREFIX_USER: shiro
     steps:
+      - name: Reference build home
+        run: sudo mkdir -p /home/shiro && sudo chown "$(id -u):$(id -g)" /home/shiro
+
       - uses: actions/checkout@v4
 
       - name: Free disk space
@@ -74,7 +85,7 @@ jobs:
           tools/ci-build.sh manifest 2>&1 | tee -a out/ci-build.log || true
           df -h / | tee -a out/ci-build.log
           mkdir -p logs-out
-          cp out/*.md out/*.tsv out/SHA256SUMS out/ci-build.log logs-out/ 2>/dev/null || true
+          cp out/*.md out/*.tsv out/SHA256SUMS out/FILES.sha256 out/validate.txt out/ci-build.log logs-out/ 2>/dev/null || true
           cp -r ~/ps4kit-build/logs logs-out/ps4kit 2>/dev/null || true
           cp ~/wine-ps4-build/build/wine-wow64/*.log logs-out/ 2>/dev/null || true
           cp ~/wine-ps4-build/prefix.log logs-out/ 2>/dev/null || true
@@ -115,7 +126,7 @@ jobs:
             echo "### Differences from the official package"
             sed -n '/^## Differences/,$p' out/COMPARISON.md | tail -n +2
           } > notes.md
-          gh release create "$TAG" "$PKG" out/SHA256SUMS out/BUILD_MANIFEST.md out/VERIFY.md out/COMPARISON.md \
+          gh release create "$TAG" "$PKG" out/SHA256SUMS out/FILES.sha256 out/validate.txt out/BUILD_MANIFEST.md out/VERIFY.md out/COMPARISON.md \
             ci-build.log.gz build-logs.tar.gz --prerelease --target "$GITHUB_SHA" \
             --title "UNTESTED DEVICE BUILD: WinePS4 v${WINEPS4_VERSION} (source build #${GITHUB_RUN_NUMBER})" \
             --notes-file notes.md

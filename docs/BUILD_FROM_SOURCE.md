@@ -95,3 +95,25 @@ PkgTool built here.
 
 To get closer: `update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix` (and the
 i686 and g++ ones), then rebuild Wine.
+
+## Why run #4's comparison failed, and what changed (2026-11-19)
+Run #4 (commit `26075a4`) built and verified the package, but its comparison found 1,682 Wine PE files with other
+bytes that it could not explain, so it published nothing. The investigation ran in the Claude session on samples
+(ntdll, user32, kernelbase, both architectures). Results are LOCAL VERIFIED unless marked otherwise:
+
+| Finding | Evidence | Change |
+|---|---|---|
+| The official **i386** DLLs are **clang's**, the x86_64 ones mingw GCC 13-posix | 589 of 601 i386 DLLs carry `Ubuntu clang version 21.1.8 (6ubuntu1)` and none GCC's; `tests/build.sh` says "there is no 32-bit mingw here", so Wine's configure fell back to `clang -target i686-windows` | `i386_CC=clang-21` (`WINE_I386_CC`) |
+| The official build has **no translations** | user32's resources: 2 languages, 45 here. The developer's machine had no `msgfmt`, which turns Wine's `po/` off | `--without-gettext` (`WINE_GETTEXT`) |
+| With both: every section has the official size, and `.rsrc` is byte-identical | `tools/pe-sections.py` | |
+| Build paths in debug info | official DWARF: `/home/shiro/wine-ps4-build/build/wine-wow64` | CI builds with `HOME=/home/shiro` (comparison only) |
+| x86_64, same paths: **32 bytes** in `.text`/`.rdata` | `__CTOR_LIST__`/`__DTOR_LIST__` in `.rdata` in the official package (section 3, 0x173e0) and at the end of `.text` here (section 1, 0x71690). Our GNU ld is 2.41.90.20240122; the developer's places them in `.rdata` (version UNVERIFIED). Plus the COFF symbol table past the sections, which Windows does not load | classified as `ctor-list`, `symtab` |
+| i386, same paths: 3-byte runs between functions | `0f 1f 00` (official) vs `90 90 90` (here) after `ret`: NOP padding, never executed | classified as `padding` |
+| i386: build timestamps | a dword equal to each file's own COFF TimeDateStamp (debug directory) | classified as `timestamp` |
+| i386 user32: **1,459 other bytes** | different `call` displacements: a function of another size. Most likely the other clang build (Ubuntu's 6ubuntu1 vs apt.llvm.org's), **UNVERIFIED** | stays UNEXPLAINED |
+| Prefix: Windows user folder name | `C:\users\shiro` (official `user.reg`) vs the build machine's user. `userdef.reg` becomes identical (apart from timestamps) when wineboot runs as `shiro` | CI makes the prefix as `shiro` (`WINE_PREFIX_USER`, comparison only; the console's user is `ps4` either way) |
+| Prefix: 40 MIME `Content Type` keys here, none in the official `system.reg` | written by `dlls/mshtml/mshtml.inf` [FileAssoc.Reg] when wineboot registers mshtml; the rest of mshtml's registration is in both. The official prefix also keeps older builds of 3 DLLs, which suggests it was made at another time with another Wine build. **UNVERIFIED** | stays UNEXPLAINED |
+
+`tools/pelib.py` classifies every differing byte of a PE file by what the bytes are (padding, ctor-list, debug, symtab,
+timestamp, header); anything else counts as "other", and a file with "other" bytes leaves the comparison failed.
+The registry files are compared with only their timestamps taken out.

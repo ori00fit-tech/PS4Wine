@@ -6,7 +6,10 @@
 Every material difference is listed under "Differences", each with its explanation: EXPLAINED (the cause is
 established by evidence in this report or in docs/BUILD_FROM_SOURCE.md) or UNEXPLAINED (it needs a look before the
 package is trusted). Nothing here runs either package."""
-import hashlib, os, re, subprocess, sys
+import hashlib, importlib.util, os, re, subprocess, sys
+
+_spec = importlib.util.spec_from_file_location('pelib', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pelib.py'))
+pelib = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(pelib)
 
 off_root, our_root, off_sfo, our_sfo, out_md = sys.argv[1:6]
 
@@ -121,7 +124,12 @@ w(f'| 40-hex ids (build ids) | {len(h40_o)}, {len(h40_o & h40_u)} shared | {len(
 kb = 'wine/lib/wine/x86_64-windows/kernelbase.dll'
 cc_o = strings(O[kb], r'GCC: \(GNU\) .*')
 cc_u = strings(U[kb], r'GCC: \(GNU\) .*')
-w(f'| PE compiler (kernelbase.dll) | {", ".join(cc_o)} | {", ".join(cc_u)} |')
+w(f'| PE compiler (x86_64 kernelbase.dll) | {", ".join(cc_o)} | {", ".join(cc_u)} |')
+def cc_all(p):
+    out = subprocess.run(['strings', '-n', '8', p], capture_output=True, text=True).stdout
+    return ', '.join(sorted(set(m.group(0) for m in re.finditer(r'GCC: \(GNU\) \S+|(?:Ubuntu )?clang version [0-9.]+(?: \([^)]*\))?', out)))) or '-'
+kb32 = 'wine/lib/wine/i386-windows/kernelbase.dll'
+w(f'| PE compiler (i386 kernelbase.dll) | {cc_all(O[kb32])} | {cc_all(U[kb32])} |')
 w('')
 
 # the differences, each explained or not
@@ -142,14 +150,76 @@ if stale:
 rest = [r for r in only_off if r not in stale] + only_our
 if rest:
     expl.append(('UNEXPLAINED', f'{len(rest)} other files in one package only', ', '.join(rest[:20])))
-pe = [r for r in diff_files if r.startswith('wine/lib/wine/') or r.startswith('wine/prefix/')]
+def is_pe(path):
+    with open(path, 'rb') as f:
+        return f.read(2) == b'MZ'
+pe = [r for r in diff_files if (r.startswith('wine/lib/wine/') or r.startswith('wine/prefix/')) and is_pe(O[r]) and is_pe(U[r])]
+# the prefix's registry files: compared with their timestamps taken out (the "[key] <seconds>" stamps and the
+# "#time=" lines wineboot writes) - what is left must be the same, line for line
+reg_ts = re.compile(r'^(\[.*\]) [0-9]+$')
+def reg_norm(path):
+    out = []
+    for line in open(path, encoding='utf-8', errors='replace').read().splitlines():
+        if re.fullmatch(r'#time=[0-9a-f]+', line):
+            continue
+        out.append(reg_ts.sub(r'\1', line))
+    return out
+for r in [r for r in diff_files if r.startswith('wine/prefix/') and r.endswith('.reg')]:
+    a, b = reg_norm(O[r]), reg_norm(U[r])
+    if a == b:
+        expl.append(('EXPLAINED', r, 'the same, line for line, once the key timestamps and #time= lines are taken out.'))
+    else:
+        import difflib
+        d = [x for x in difflib.unified_diff(a, b, lineterm='', n=0) if x[:1] in '+-' and x[:3] not in ('+++', '---')]
+        users_o = sorted(set(re.findall(r'C:\\\\users\\\\([^\\"]+)', '\n'.join(a))))
+        users_u = sorted(set(re.findall(r'C:\\\\users\\\\([^\\"]+)', '\n'.join(b))))
+        sample = '; '.join(x[:90] for x in d[:4])
+        expl.append(('UNEXPLAINED', r, f'{len(d)} lines differ beyond the timestamps (Windows user folders: official '
+                     f'{users_o or "-"}, this build {users_u or "-"}). First: {sample}'))
+    diff_files_handled = True
+if 'wine/prefix/.update-timestamp' in diff_files:
+    t = [open(x[r], 'rb').read().strip() for x, r in ((O, 'wine/prefix/.update-timestamp'), (U, 'wine/prefix/.update-timestamp'))]
+    expl.append(('EXPLAINED' if all(v.isdigit() for v in t) else 'UNEXPLAINED', 'wine/prefix/.update-timestamp',
+                 f'the time wineboot ran ({t[0].decode(errors="replace")} vs {t[1].decode(errors="replace")}).'))
 if pe:
-    same_cc = cc_o == cc_u
-    expl.append(('EXPLAINED' if not same_cc else 'UNEXPLAINED', f'{len(pe)} Wine PE files / prefix files with other bytes',
-                 ('built by another compiler build (' + ', '.join(cc_o) + ' vs ' + ', '.join(cc_u) + '): PE files are not '
-                  'byte-reproducible across compilers; same Wine source and patch.') if not same_cc else
-                 'the same compiler string on both sides, yet different bytes: PE builds embed build paths and '
-                 'timestamps (Wine builds them with -g); needs a closer look if the sizes differ much.'))
+    # every differing PE file classified byte by byte (tools/pelib.py): a file is explained when none of its bytes
+    # is "other" and its sections have the same names and sizes (debug sections excepted)
+    kinds = ('padding', 'ctor-list', 'debug', 'symtab', 'timestamp', 'header', 'other')
+    per_area, worst = {}, []
+    for r in pe:
+        c = pelib.classify(O[r], U[r])
+        a = per_area.setdefault(area(r), {k: 0 for k in kinds} | {'files': 0, 'clean': 0})
+        a['files'] += 1
+        for k in kinds:
+            a[k] += c[k]
+        if c['other'] == 0 and not c['layout']:
+            a['clean'] += 1
+        else:
+            worst.append((c['other'], r, c['layout']))
+    w('## Wine PE files: what the differing bytes are')
+    w('Each differing DLL compared section by section (tools/pelib.py). Byte counts per kind; a file is clean when it '
+      'has no "other" byte and the same sections.')
+    w('')
+    w('| Area | Differing files | Clean | ' + ' | '.join(kinds) + ' |')
+    w('|---|---|---|' + '---|' * len(kinds))
+    for name, a in sorted(per_area.items()):
+        w(f'| {name} | {a["files"]} | {a["clean"]} | ' + ' | '.join(f'{a[k]:,}' for k in kinds) + ' |')
+    w('')
+    if worst:
+        w('Files with unexplained bytes (most first):')
+        for o, r, lay in sorted(worst, reverse=True)[:25]:
+            w(f'- `{r}`: {o:,} other bytes' + (f'; sections differ: {lay}' if lay else ''))
+        w('')
+    for name, a in sorted(per_area.items()):
+        if a['clean'] == a['files']:
+            expl.append(('EXPLAINED', f'{a["files"]} PE files in {name} with other bytes',
+                         'every differing byte classified: ' + ', '.join(f'{k} {a[k]:,}' for k in kinds if a[k]) +
+                         ' (tools/pelib.py: alignment padding, the CTOR/DTOR list placement, debug info, the COFF '
+                         'symbol table, the build timestamp, the header fields those move); no other byte.'))
+        else:
+            expl.append(('UNEXPLAINED', f'{a["files"] - a["clean"]} of {a["files"]} PE files in {name}',
+                         f'{a["other"]:,} bytes that are none of the known kinds (the list above). Compilers: '
+                         f'official {", ".join(cc_o)}, this build {", ".join(cc_u)} (kernelbase.dll).'))
 eb = [r for r in diff_files if r in ('eboot.bin', 'wineps4.bin')]
 if eb:
     expl.append(('EXPLAINED', 'eboot.bin, wineps4.bin bytes',
@@ -175,7 +245,7 @@ if tests:
                  'compiled from tests/*.c on each build machine: ' +
                  '; '.join(f'{r.split("/")[-1]} {cc(O[r])} vs {cc(U[r])}' for r in tests) + '.'))
     eb.extend(tests)
-other = [r for r in diff_files if r not in pe and r not in eb]
+other = [r for r in diff_files if r not in pe and r not in eb and not (r.startswith('wine/prefix/') and (r.endswith('.reg') or r.endswith('.update-timestamp')))]
 if other:
     expl.append(('UNEXPLAINED', f'{len(other)} other files with other bytes', ', '.join(other[:30])))
 if imp_o != imp_u:

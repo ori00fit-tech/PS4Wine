@@ -66,6 +66,19 @@ else
     w "(no downloads.tsv)"
 fi
 w ""
+w "## Build configuration"
+w "| Setting | Value |"
+w "|---|---|"
+for v in WINEPS4_VERSION MINGW_THREADS WINE_CONFIGURE_EXTRA WINE_I386_CC WINE_GETTEXT WINE_PREFIX_USER PS4_KIT_COMMIT \
+         PS4LIBDOC_COMMIT OPENSSL_VER LLVM_VER CLANG_VER JOBS HOME USER; do
+    if [ -n "${!v+x}" ]; then w "| \`$v\` | \`${!v}\` |"; else w "| \`$v\` | (unset: the scripts' default) |"; fi
+done
+W="$HOME/wine-ps4-build/build/wine-wow64"
+w "| Wine configure | \`$(sed -n 's/^  \$ //p' "$W/config.log" 2>/dev/null | head -1)\` |"
+grep -E '^(i386|x86_64)_(CC|TARGET) ' "$W/Makefile" 2>/dev/null | while read -r k _ val; do w "| Wine \`$k\` | \`$val\` |"; done
+w "| Stage order | $(awk -F'\t' 'NR > 1 { printf "%s%s", (NR > 2 ? " → " : ""), $1 }' "$ROOT/out/stages.tsv" 2>/dev/null) |"
+w "| Files in the package | $(wc -l < "$ROOT/out/FILES.sha256" 2>/dev/null || echo '?') (sha256 of each: FILES.sha256) |"
+w ""
 w "## Tools"
 w "| Tool | Version |"
 w "|---|---|"

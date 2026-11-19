@@ -3,7 +3,8 @@
 # it on a console). Writes out/VERIFY.md and out/SHA256SUMS; exits non-zero when a check fails.
 #   WINEPS4_VERSION=00.71 tools/verify-pkg.sh [out/WinePS4-v00.71.pkg]
 #
-# Checks: PkgTool's pkg_validate (header digests and signatures); param.sfo (title id, content id, version, attribute);
+# Checks: PkgTool's pkg_validate, every line [OK] (hashes, and the header and debug RIF signatures: with the public
+# fake-PKG keys, so they prove the package intact and loadable by GoldHEN, not who built it); param.sfo (title id, content id, version, attribute);
 # the files the app needs at run time; every system32-from-lib.txt entry has its DLL in lib; both eboots are fake SELFs
 # carrying this version, and wineps4.bin imports the 15 system libraries the official v00.71 does.
 set -euo pipefail
@@ -36,8 +37,31 @@ say "|---|---|"
 
 # 1. PkgTool's own validation
 "$PKGTOOL" pkg_validate "$PKG" > "$WORK/validate.txt" 2>&1 || true
-check "pkg_validate: no failed hash or signature ($(grep -c '\[OK\]' "$WORK/validate.txt") OK)" \
-    bash -c "grep -q '\[OK\]' '$WORK/validate.txt' && ! grep -qiE '\[(FAIL|ERROR)|exception' '$WORK/validate.txt'"
+cp "$WORK/validate.txt" "$ROOT/out/validate.txt"
+# strict: every result line [OK] (PkgTool's NoKey, for a header signature it cannot match, and any other status
+# fail), both signatures and every hash present, and nothing but result lines
+check "pkg_validate: every one of its $(grep -c . "$WORK/validate.txt") lines is [OK]" bash -c '
+    f="$1"; bad=0
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        case "$line" in "[OK]"*"("*")"*) ;; *) echo "not OK: $line"; bad=$((bad + 1)) ;; esac
+    done < "$f"
+    [ "$(grep -c . "$f")" -ge 20 ] || { echo "only $(grep -c . "$f") lines"; bad=$((bad + 1)); }
+    grep -q "^\[OK\].*(Signature) PKG Header Signature" "$f" || { echo "no [OK] PKG Header Signature"; bad=$((bad + 1)); }
+    grep -q "^\[OK\].*(Signature) Debug RIF Signature" "$f" || { echo "no [OK] Debug RIF Signature"; bad=$((bad + 1)); }
+    [ $bad = 0 ]' _ "$WORK/validate.txt"
+say ""
+say "<details><summary>pkg_validate, line by line ($(grep -c . "$WORK/validate.txt") lines)</summary>"
+say ""
+say "| Status | Check |"
+say "|---|---|"
+sed -nE 's/^\[([A-Za-z]+)\][[:space:]]+(.*)$/| \1 | \2 |/p' "$WORK/validate.txt" >&3
+grep -vE '^\[[A-Za-z]+\]' "$WORK/validate.txt" | grep . | sed 's/^/| ? | /; s/$/ |/' >&3 || true
+say ""
+say "</details>"
+say ""
+say "| Result | Check |"
+say "|---|---|"
 
 # 2. param.sfo (entry 9 in WinePS4's packages; found by name to be safe)
 id=$("$PKGTOOL" pkg_listentries "$PKG" | awk '$NF == "PARAM_SFO" { print $(NF-1) }')
@@ -95,6 +119,11 @@ check "wineps4.bin imports the official v00.71's 15 system libraries" diff "$WOR
 ( cd "$(dirname "$PKG")" && sha256sum "$(basename "$PKG")" ) > "$ROOT/out/SHA256SUMS"
 ( cd "$U" && sha256sum eboot.bin wineps4.bin ) | sed 's#  #  uroot/#' >> "$ROOT/out/SHA256SUMS"
 ( cd "$WORK" && sha256sum param.sfo ) | sed 's#  #  entry/#' >> "$ROOT/out/SHA256SUMS"
+# every file of the package's file system, sorted by path (out/FILES.sha256)
+( cd "$U" && find . -type f -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum ) > "$ROOT/out/FILES.sha256"
+( cd "$ROOT/out" && sha256sum FILES.sha256 ) >> "$ROOT/out/SHA256SUMS"
+check "FILES.sha256 lists every file of the package ($(wc -l < "$ROOT/out/FILES.sha256"))" \
+    test "$(wc -l < "$ROOT/out/FILES.sha256")" = "$(find "$U" -type f | wc -l)"
 say ""
 say "## SHA256SUMS"
 say '```'
