@@ -56,6 +56,15 @@ def strings(p, pattern):
     return sorted(set(m for m in out.splitlines() if re.fullmatch(pattern, m)))
 
 
+def cc_all(p):
+    out = subprocess.run(['strings', '-n', '8', p], capture_output=True, text=True).stdout
+    return ', '.join(sorted(set(m.group(0) for m in re.finditer(r'GCC: \(GNU\) \S+|(?:Ubuntu )?clang version [0-9.]+(?: \([^)]*\))?', out)))) or '-'
+def area_compiler_file(name):
+    # the kernelbase.dll of the area's architecture (the prefix: its i386 copies are in syswow64, its x86_64 in system32;
+    # reported with the i386 one, which is where the two packages' compilers differ)
+    return 'wine/lib/wine/x86_64-windows/kernelbase.dll' if 'x86_64' in name else 'wine/lib/wine/i386-windows/kernelbase.dll'
+
+
 O, U = files(off_root), files(our_root)
 common = sorted(set(O) & set(U))
 only_off = sorted(set(O) - set(U))
@@ -125,9 +134,6 @@ kb = 'wine/lib/wine/x86_64-windows/kernelbase.dll'
 cc_o = strings(O[kb], r'GCC: \(GNU\) .*')
 cc_u = strings(U[kb], r'GCC: \(GNU\) .*')
 w(f'| PE compiler (x86_64 kernelbase.dll) | {", ".join(cc_o)} | {", ".join(cc_u)} |')
-def cc_all(p):
-    out = subprocess.run(['strings', '-n', '8', p], capture_output=True, text=True).stdout
-    return ', '.join(sorted(set(m.group(0) for m in re.finditer(r'GCC: \(GNU\) \S+|(?:Ubuntu )?clang version [0-9.]+(?: \([^)]*\))?', out)))) or '-'
 kb32 = 'wine/lib/wine/i386-windows/kernelbase.dll'
 w(f'| PE compiler (i386 kernelbase.dll) | {cc_all(O[kb32])} | {cc_all(U[kb32])} |')
 w('')
@@ -218,8 +224,9 @@ if pe:
                          'symbol table, the build timestamp, the header fields those move); no other byte.'))
         else:
             expl.append(('UNEXPLAINED', f'{a["files"] - a["clean"]} of {a["files"]} PE files in {name}',
-                         f'{a["other"]:,} bytes that are none of the known kinds (the list above). Compilers: '
-                         f'official {", ".join(cc_o)}, this build {", ".join(cc_u)} (kernelbase.dll).'))
+                         f'{a["other"]:,} bytes that are none of the known kinds (the list above). Compilers '
+                         f'({area_compiler_file(name)}): official {cc_all(O[area_compiler_file(name)])}, '
+                         f'this build {cc_all(U[area_compiler_file(name)])}.'))
 eb = [r for r in diff_files if r in ('eboot.bin', 'wineps4.bin')]
 if eb:
     expl.append(('EXPLAINED', 'eboot.bin, wineps4.bin bytes',

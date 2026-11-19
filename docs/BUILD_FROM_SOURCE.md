@@ -117,3 +117,20 @@ bytes that it could not explain, so it published nothing. The investigation ran 
 `tools/pelib.py` classifies every differing byte of a PE file by what the bytes are (padding, ctor-list, debug, symtab,
 timestamp, header); anything else counts as "other", and a file with "other" bytes leaves the comparison failed.
 The registry files are compared with only their timestamps taken out.
+
+## Run #5's remaining differences: a limited investigation (2026-11-19, LOCAL VERIFIED unless marked)
+Run #5 (`0869c77`, GITHUB ACTIONS VERIFIED): i386 at +0.4% (was +38%), 402 of 741 x86_64 PE files fully classified,
+5 differences left unexplained. Investigated in the Claude session, in a Wine build configured as CI's (the same
+`/home/shiro` paths, x86_64 mingw-w64 GCC 13-posix, i386 clang-21, `--without-gettext`, `--disable-tests`), with the
+identical mingw-w64 packages (`binutils-mingw-w64-x86-64 2.41.90.20240122-1ubuntu1+11.4`,
+`gcc-mingw-w64-x86-64-posix 13.2.0-6ubuntu1+26.1`: the same in run #5's apt log).
+
+| Item | Finding | Evidence |
+|---|---|---|
+| x86_64: 339 files with "other" bytes (winedbg, wined3d, mshtml the largest) | **CI's configure was run by an absolute path; upstream's by a relative one.** Every `__FILE__` (Wine's debug channels, asserts) then embeds `/home/shiro/wine-ps4-build/src/wine/...` instead of `../../src/wine/...`, which changes `.rdata`'s strings and shifts `.text`'s addresses | The official wined3d.dll holds 495 `../../src/wine/` strings and no absolute one (winedbg.exe: 236 and 0). Upstream `docs/BUILDING.md:20` runs `../../src/wine/configure`; `tools/build-wineps4.sh` runs `"$SRC/configure"`. Run #5's make.log compiles `/home/shiro/wine-ps4-build/src/wine/programs/winedbg/break.c`. Built locally with the relative path, then `winebuild --builtin` as `make install` does: winedbg.exe, wined3d.dll and mshtml.dll have **0 other bytes** (ctor-list 32, symtab only) |
+| i386: another clang build | the official i386 DLLs say `Ubuntu clang version 21.1.8 (6ubuntu1)`: Launchpad lists `1:21.1.8-6ubuntu1` as the release of Ubuntu 26.04 LTS (Resolute Raccoon). This build uses apt.llvm.org's 21.1.8 on Ubuntu 24.04 | consistent with the other clues (GCC 15 in the official test programs; a GNU ld that puts the CTOR lists in `.rdata`); that the developer built on 26.04 is UNVERIFIED |
+| `system.reg`: mshtml.inf | none of mshtml.inf's `Classes.Reg` (0 of 29 keys), `Protocols.Reg` (0 of 6) or `IE.Reg` (0 of 4) is in the official prefix, 7 of 120 `FileAssoc.Reg` keys (other registrations write those): **the whole of mshtml.inf** (`RegInstall` through advpack, `dlls/mshtml/main.c:692-758`) was not applied when the official prefix was made, not only the MIME types | why is UNVERIFIED (no wineboot log of the developer's) |
+| `user.reg`, `system.reg`: the computer name | `programs/wineboot/wineboot.c:904-910` sets `USERDOMAIN` to `GetComputerNameW()` and `LOGONSERVER` to `\\` + it; lines 828-851 the `ComputerName` and `Hostname` keys from the build machine's host name. The official prefix: `DESKTOP-6QPFRA3` in those 4 places; run #5's: its runner's name | source-level |
+
+The comparison's report printed the x86_64 kernelbase's compiler on every area's line; it now prints the area's own
+architecture's (`tools/compare-pkg.py`, reporting only: the classifier is unchanged).
