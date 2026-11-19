@@ -14,10 +14,10 @@ Status per step: **BUILD-VERIFIED** = built here. Nothing in this file is DEVICE
 | 4 | libc overlay, libc++ 21, kit runtime | ps4-kit `prepare-sysroot.sh`, `build-libcxx.sh`, `build-runtime.sh` | BUILD-VERIFIED |
 | 5 | zlib, OpenSSL, FreeType, FFmpeg, libsmb2, libnfs | `tools/build-sysroot.sh` | BUILD-VERIFIED |
 | 6 | ps4-kit test app → eboot.bin, `check-oelf` OK | `~/smoke` (see below) | BUILD-VERIFIED |
-| 7 | Mesa/RADV 26.0.8 + kit patches 0001–0031 | ps4-kit `gpu/build-mesa.sh` | in progress |
-| 8 | Wine 11.0 + `patches/wine-ps4.patch` (46 commits apply cleanly) | upstream BUILDING step 1–2 | patch applies; build in progress |
+| 7 | Mesa/RADV 26.0.8 + kit patches 0001–0031 (build id `bbe98bd46211`) | ps4-kit `gpu/build-mesa.sh` | BUILD-VERIFIED |
+| 8 | Wine 11.0 + `patches/wine-ps4.patch` (46 commits apply cleanly), host build, prefix, test programs | `tools/build-wineps4.sh wine prefix tests` | BUILD-VERIFIED |
 | 9 | DXVK 3.1.1 release (sha256 `40565b4a…f54e608`) | download | done |
-| 10 | `app/build.sh`, `app/package.sh` | upstream | not yet |
+| 10 | `app/build.sh`, `app/package.sh` → `out/WinePS4-v00.71.pkg` (1.74 GB) | `tools/build-wineps4.sh app package` | BUILD-VERIFIED, **not DEVICE-TESTED** |
 
 ## 1. Host
 ```bash
@@ -68,6 +68,30 @@ A ps4-kit app with `ps4_kit_app()` and some libc++ code links to `eboot.bin`, an
 ## 7–10. Mesa, Wine, the app
 ```bash
 bash ~/ps4-kit/gpu/build-mesa.sh
-# Wine: docs/BUILDING.md steps 1-3 (clone wine-11.0, git am patches/wine-ps4.patch, configure, make, prefix)
-WINEPS4_VERSION=00.71 app/build.sh all && WINEPS4_VERSION=00.71 app/package.sh
+curl -sSfL https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz | tar -xz -C ~/wineps4-build
+DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 WINEPS4_VERSION=00.71 tools/build-wineps4.sh   # wine prefix tests app package
 ```
+`tools/build-wineps4.sh` fills four gaps in upstream's steps, all on the PC side (see the script's header):
+- the host build of `wineps4.drv`'s Unix half, which is PS4 code;
+- Wine's own fonts, which are not installed with `--without-freetype`;
+- `hello32.exe`'s link (`/safeseh:no`);
+- `create-gp4`, which `make-pkg.sh` calls (added to `tools/build-openorbis.sh`).
+
+## Comparison with the official v00.71 package
+Official `WinePS4-v00.71.pkg`: sha256 `95ec4804…98478c`, 1,556,938,752 bytes. Both packages were extracted with the
+PkgTool built here.
+
+| | Official | This build |
+|---|---|---|
+| `wineps4.bin` | 42,491,440 B | 42,261,184 B (−0.5%) |
+| Its imported system libraries | 15 | the same 15 |
+| Version strings | `WinePS4 v00.71 (Wine 11.0)` | the same |
+| RADV build id (hash of the Mesa patch files) | different | `bbe98bd46211` (the public kit's patch files were rewritten; this only gives the shader cache a separate identity) |
+| Files | 2,076 | 2,070 |
+| `wine/share`, `wine/dxvk`, fonts, wallpapers, `sce_sys` | | byte-identical sizes |
+| `wine/lib` (Wine's PE DLLs) | 1.21 GB | 1.40 GB |
+| PE compiler | mingw-w64 GCC 13 **posix** | mingw-w64 GCC 13 **win32** (Ubuntu's default alternative) |
+| Prefix | stale copies of `kernelbase.dll`, `msctf.dll`, `wineps4.drv` kept in system32/syswow64 | identical to `lib`, so `package.sh` dedupes them into `system32-from-lib.txt` |
+
+To get closer: `update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix` (and the
+i686 and g++ ones), then rebuild Wine.

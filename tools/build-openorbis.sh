@@ -36,6 +36,7 @@ step_fetch() {
     # create-fself: not PacBrew's 30d2e10 (2021), which writes the data PT_LOAD twice when .data.rel.ro is large
     # (the console refuses the eboot, CE-41839-5; ps4-kit.cmake and check-oelf.cmake): OpenOrbis fixed it in d35679f
     fetch create-fself    https://github.com/OpenOrbis/create-fself.git           f2da6229684ce320f673c06fceac9c218f621788
+    fetch create-gp4      https://github.com/OpenOrbis/create-gp4.git             bf8e66e9e9bdd92e41e1697893bc8098a151fa24
     fetch liborbispkg     https://github.com/OpenOrbis/LibOrbisPkg.git            594021fdc435409f755a6ae0781b65ec6cec846c
 }
 
@@ -71,7 +72,12 @@ step_fself() {
     GOPATH="$SRC/gopath" GOFLAGS=-mod=mod "$go/bin/go" build -o create-fself -modfile=go-linux.mod
     install -m755 create-fself "$OO/bin/create-fself"
     ln -sf ../create-fself "$OO/bin/linux/create-fself"
-    echo "create-fself built"
+    # create-gp4 (PacBrew 1.0, OpenOrbis bf8e66e): the package layout file PkgTool builds from
+    cd "$SRC/create-gp4/cmd/create-gp4"
+    GOPATH="$SRC/gopath" GOFLAGS=-mod=mod "$go/bin/go" build -o create-gp4
+    install -m755 create-gp4 "$OO/bin/create-gp4"
+    ln -sf ../create-gp4 "$OO/bin/linux/create-gp4"
+    echo "create-fself, create-gp4 built"
 }
 
 # vars (PacBrew ps4-openorbis-vars 1.1): ps4vars.sh, cmake/ps4.cmake, usr/bin/openorbis-cmake
