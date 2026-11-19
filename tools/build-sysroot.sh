@@ -7,6 +7,8 @@
 #   OpenSSL 3.5.x   -> $PS4_SYSROOT          (libcrypto only: WinePS4's bcrypt Unix half, dlls/bcrypt/ps4.c)
 #   FreeType 2.13.3 -> ~/wineps4-build/freetype   (win32u, dwrite)
 #   FFmpeg 7.1.1    -> ~/wineps4-build/ffmpeg-img (the desktop's image decoders; scripts/build-ffmpeg-img.sh's options)
+#   libsmb2 6.0.0, libnfs 6.0.2 -> $PS4_SYSROOT  (ps4-kit's SMB/NFS shares under /net, PS4_KIT_NETFS=ON by default,
+#                                  which WinePS4 links: runtime/ps4_netfs.cpp uses libnfs >= 6's nfs_pread)
 #
 #   tools/build-sysroot.sh [zlib|openssl|freetype|ffmpeg ...]   (default: all)
 set -euo pipefail
@@ -66,5 +68,39 @@ do_ffmpeg() {
     ls -la "$WB/ffmpeg-img/lib"
 }
 
-WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(zlib openssl freetype ffmpeg)
+# gitsrc <dir> <url> <tag>: a shallow checkout of a tag
+gitsrc() { rm -rf "$PSB/src/$1"; git -c advice.detachedHead=false clone -q --depth 1 --branch "$3" "$2" "$PSB/src/$1"; }
+
+do_libsmb2() {
+    gitsrc libsmb2 https://github.com/sahlberg/libsmb2.git v6.0.0
+    # (its PS4 branch sets CMAKE_C_FLAGS to "-funwind-tables", dropping the toolchain's target and sysroot
+    # flags: the library came out compiled for the host, fcntl64 and __isoc23_strtol undefined), and it wants
+    # glibc's __bswap_NN, which musl lacks: clang's builtins)
+    python3 - "$PSB/src/libsmb2/CMakeLists.txt" <<'PYEOF'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+s, n = re.subn(r'(elseif\(PS4\)\n\s*add_definitions\(-DPS4_PLATFORM\)\n)(?:.*\n){4}',
+              r'\1      add_definitions(-D__bswap_16=__builtin_bswap16 -D__bswap_32=__builtin_bswap32 -D__bswap_64=__builtin_bswap64)\n', s)
+assert n == 1, "libsmb2: its PS4 flags block moved"
+open(p, "w").write(s)
+PYEOF
+    local b="$PSB/build/libsmb2"; rm -rf "$b"
+    ps4_cmake -S "$PSB/src/libsmb2" -B "$b" -G Ninja -DCMAKE_INSTALL_PREFIX="$PS4_SYSROOT" -DBUILD_SHARED_LIBS=OFF \
+        -DENABLE_EXAMPLES=OFF -DENABLE_LIBKRB5=OFF -DENABLE_GSSAPI=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        > "$PSB/logs/libsmb2.log" 2>&1
+    ninja -C "$b" install >> "$PSB/logs/libsmb2.log" 2>&1
+    ls -la "$PS4_SYSROOT/lib/libsmb2.a"
+}
+
+do_libnfs() {
+    gitsrc libnfs https://github.com/sahlberg/libnfs.git libnfs-6.0.2
+    local b="$PSB/build/libnfs"; rm -rf "$b"
+    ps4_cmake -S "$PSB/src/libnfs" -B "$b" -G Ninja -DCMAKE_INSTALL_PREFIX="$PS4_SYSROOT" -DBUILD_SHARED_LIBS=OFF \
+        -DENABLE_EXAMPLES=OFF -DENABLE_TESTS=OFF -DENABLE_UTILS=OFF -DENABLE_DOCUMENTATION=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON > "$PSB/logs/libnfs.log" 2>&1
+    ninja -C "$b" install >> "$PSB/logs/libnfs.log" 2>&1
+    ls -la "$PS4_SYSROOT/lib/libnfs.a"
+}
+
+WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(zlib openssl freetype ffmpeg libsmb2 libnfs)
 for w in "${WHAT[@]}"; do echo "--- $w"; "do_$w"; done

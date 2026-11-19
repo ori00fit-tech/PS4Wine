@@ -33,7 +33,9 @@ step_fetch() {
     fetch ps4-openorbis   https://github.com/PacBrew/ps4-openorbis.git            HEAD
     fetch headers         https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain.git cd480230b946239f758333ef0dff40d67c5f0c20
     fetch musl            https://github.com/PacBrew/ps4-openorbis-musl.git       140a653299ffcb1457bc63a5ab1f507d7bb37c54
-    fetch create-fself    https://github.com/OpenOrbis/create-fself.git           30d2e10507f55124cf21e85e19825482e4f93c87
+    # create-fself: not PacBrew's 30d2e10 (2021), which writes the data PT_LOAD twice when .data.rel.ro is large
+    # (the console refuses the eboot, CE-41839-5; ps4-kit.cmake and check-oelf.cmake): OpenOrbis fixed it in d35679f
+    fetch create-fself    https://github.com/OpenOrbis/create-fself.git           f2da6229684ce320f673c06fceac9c218f621788
     fetch liborbispkg     https://github.com/OpenOrbis/LibOrbisPkg.git            594021fdc435409f755a6ae0781b65ec6cec846c
 }
 
