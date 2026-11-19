@@ -20,7 +20,11 @@ WB="$HOME/wineps4-build"; mkdir -p "$WB"
 ZLIB_VER=1.3.1 OPENSSL_VER="${OPENSSL_VER:-3.5.4}" FREETYPE_VER=2.13.3 FFMPEG_VER=7.1.1
 
 # get <url> <file>: download once
-get() { [ -s "$DL/$2" ] || curl -sSfL -o "$DL/$2.part" "$1" && mv -f "$DL/$2.part" "$DL/$2" 2>/dev/null || true; [ -s "$DL/$2" ]; }
+get() {
+    [ -s "$DL/$2" ] && return 0
+    if curl -sSfL --connect-timeout 30 --retry 3 --retry-delay 5 -o "$DL/$2.part" "$1"; then mv -f "$DL/$2.part" "$DL/$2"; return 0; fi
+    rm -f "$DL/$2.part"; echo "download failed: $1" >&2; return 1
+}
 unpack() { rm -rf "$PSB/src/$2"; mkdir -p "$PSB/src"; tar -xf "$DL/$1" -C "$PSB/src"; }
 
 do_zlib() {
@@ -48,7 +52,10 @@ do_openssl() {
 }
 
 do_freetype() {
-    get "https://download.savannah.gnu.org/releases/freetype/freetype-$FREETYPE_VER.tar.xz" freetype-$FREETYPE_VER.tar.xz
+    # (SourceForge first: savannah.gnu.org did not answer from GitHub's runners; both serve the same file)
+    get "https://downloads.sourceforge.net/project/freetype/freetype2/$FREETYPE_VER/freetype-$FREETYPE_VER.tar.xz" freetype-$FREETYPE_VER.tar.xz ||
+        get "https://download.savannah.gnu.org/releases/freetype/freetype-$FREETYPE_VER.tar.xz" freetype-$FREETYPE_VER.tar.xz
+    echo "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289  $DL/freetype-$FREETYPE_VER.tar.xz" | sha256sum -c -
     unpack freetype-$FREETYPE_VER.tar.xz freetype-$FREETYPE_VER
     local b="$PSB/build/freetype"; rm -rf "$b"
     ps4_cmake -S "$PSB/src/freetype-$FREETYPE_VER" -B "$b" -G Ninja -DCMAKE_INSTALL_PREFIX="$WB/freetype" \
