@@ -7,6 +7,7 @@
 #   OpenSSL 3.5.x   -> $PS4_SYSROOT          (libcrypto only: WinePS4's bcrypt Unix half, dlls/bcrypt/ps4.c)
 #   FreeType 2.13.3 -> ~/wineps4-build/freetype   (win32u, dwrite)
 #   FFmpeg 7.1.1    -> ~/wineps4-build/ffmpeg-img (the desktop's image decoders; scripts/build-ffmpeg-img.sh's options)
+#   fmt 11.2.0 (headers) -> $PS4_SYSROOT        (the desktop's shell/compat/util/log.h, FMT_HEADER_ONLY)
 #   libsmb2 6.0.0, libnfs 6.0.2 -> $PS4_SYSROOT  (ps4-kit's SMB/NFS shares under /net, PS4_KIT_NETFS=ON by default,
 #                                  which WinePS4 links: runtime/ps4_netfs.cpp uses libnfs >= 6's nfs_pread)
 #
@@ -54,7 +55,10 @@ do_freetype() {
         -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON \
         -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON > "$PSB/logs/freetype.log" 2>&1
     ninja -C "$b" install >> "$PSB/logs/freetype.log" 2>&1
-    ls -la "$WB/freetype/lib/libfreetype.a"
+    # (app/CMakeLists.txt includes $WB/freetype/include: ft2build.h there, not in freetype2/, or OpenOrbis' old
+    # FreeType headers in its include/ are found instead)
+    cp -r "$WB/freetype/include/freetype2/." "$WB/freetype/include/"
+    ls -la "$WB/freetype/lib/libfreetype.a" "$WB/freetype/include/ft2build.h"
 }
 
 do_ffmpeg() {
@@ -102,5 +106,11 @@ do_libnfs() {
     ls -la "$PS4_SYSROOT/lib/libnfs.a"
 }
 
-WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(zlib openssl freetype ffmpeg libsmb2 libnfs)
+do_fmt() {
+    gitsrc fmt https://github.com/fmtlib/fmt.git 11.2.0
+    rm -rf "$PS4_SYSROOT/include/fmt"; cp -r "$PSB/src/fmt/include/fmt" "$PS4_SYSROOT/include/"
+    ls "$PS4_SYSROOT/include/fmt/format.h"
+}
+
+WHAT=("$@"); [ ${#WHAT[@]} -gt 0 ] || WHAT=(zlib openssl freetype ffmpeg fmt libsmb2 libnfs)
 for w in "${WHAT[@]}"; do echo "--- $w"; "do_$w"; done
