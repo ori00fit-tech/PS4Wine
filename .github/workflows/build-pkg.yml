@@ -17,10 +17,10 @@ on:
         type: choice
         options: [posix, win32]
       build_os:
-        description: "Ubuntu release to build on: 24.04 (this machine) or 26.04 (a container: the official v00.71's clang-21 and mingw binutils)"
-        default: "24.04"
+        description: "Ubuntu release to build on: 26.04 (a container: the official v00.71's clang-21 and mingw binutils; run #11) or 24.04 (this machine)"
+        default: "26.04"
         type: choice
-        options: ["24.04", "26.04"]
+        options: ["26.04", "24.04"]
       publish:
         description: "Publish the PKG as an UNTESTED DEVICE BUILD pre-release (only if every check passed)"
         default: false

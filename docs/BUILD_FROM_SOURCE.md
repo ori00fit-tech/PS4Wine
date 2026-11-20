@@ -178,4 +178,19 @@ fails, 7 unexplained differences. What the review found (LOCAL VERIFIED):
 
 To test the build machine as the cause, `BUILD_OS=26.04` (the workflow's `build_os` input) runs the whole build in an
 `ubuntu:26.04` container (`tools/ci-run.sh`): Ubuntu's own clang-21 and mingw binutils 2.45, and .NET 10 for PkgTool
-(26.04 has no .NET 8). `24.04` stays the default and builds as before.
+(26.04 has no .NET 8). `24.04` builds as before.
+
+## Run #11: built on Ubuntu 26.04 (2026-11-20, GITHUB ACTIONS VERIFIED)
+Commit 91a3c22, `build_os=26.04` (run #10 stopped at the i386 `libcompiler-rt.a`: winebuild needs the unversioned
+`llvm-ar`/`clang`, which GitHub's 24.04 image has and a bare 26.04 has not; 26.04's `clang`, `llvm` and `lld` packages
+give them for the same clang-21). Every stage and check passed; PKG sha256
+`57fdfa5f13dde46278a8aca8475aa6d16c738ab6a6e9b9061a945fe57245210c`; no `__stack_chk_*` import, the same import lists as
+run #9. Not run on a console.
+
+The build machine was the cause of the Wine PE differences: the i386 and x86_64 DLLs now have the official
+package's exact total sizes (460,677,120 and 753,110,528 bytes), and all 792 + 741 differing ones are clean (no
+unexplained byte; what differs is debug information, the symbol table, timestamps and the header fields they move).
+Unexplained: 5 (run #9: 7) - system.reg (mshtml's registration and the build machine), user.reg (the machine name, and
+4 `MimeType` values: without `shared-mime-info` winemenubuilder names file types `application/x-wine-extension-*`,
+`programs/winemenubuilder/winemenubuilder.c:2131`; now installed on 26.04), the official prefix's older `explorer.exe`
+copy, and the two eboots' imported symbols. `26.04` is now the workflow's default.
