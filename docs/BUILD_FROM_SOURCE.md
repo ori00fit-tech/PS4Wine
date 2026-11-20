@@ -134,3 +134,19 @@ identical mingw-w64 packages (`binutils-mingw-w64-x86-64 2.41.90.20240122-1ubunt
 
 The comparison's report printed the x86_64 kernelbase's compiler on every area's line; it now prints the area's own
 architecture's (`tools/compare-pkg.py`, reporting only: the classifier is unchanged).
+
+## Device test of run #7's package: it does not start (2026-11-20, DEVICE TESTED)
+Run #7's NOT ACCEPTED package (sha256 `6601c3ec…`) on the PS4 Slim, HEN 12.50, GoldHEN v2.4b18.10: **CE-34878-0** as
+it starts; no `crash.log` and no `launcher.log` (so the launcher did start `wineps4.bin`, and the crash came before
+ps4-kit's crash handler). The official v00.71 works again after going back to it. Read-only analysis of the two
+packages' eboots (LOCAL VERIFIED):
+
+| Imported from libkernel | wineps4.bin: ours / official | eboot.bin (launcher): ours / official | Cause |
+|---|---|---|---|
+| `__stack_chk_guard` (a variable), `__stack_chk_fail` | yes / no | yes / no | musl, compiler-rt and libunwind built with `--target=x86_64-scei-ps4`, for which clang 21 turns the strong stack protector on by default (`-stack-protector 2`, `__stack_chk_guard@GOTPCREL`); the orbis-lib-gen stubs also mark every symbol a function, this variable included. **Fixed**: `-fno-stack-protector` (tools/build-openorbis.sh); both eboots relinked locally import neither |
+| `madvise` | yes / no | no / no | OpenSSL's secure heap (`libcrypto-lib-mem_sec.o`, `ld.lld -y madvise`); not changed |
+| `pthread_once` | no / yes | no / yes | ps4-kit 1f2bd79 wraps pthread_once for every caller (`__wrap_pthread_once`, ps4_runtime.cpp:2077); upstream's kit 56b3d86 is not public; not changed |
+| `pthread_rwlock_rdlock`, `_wrlock`, `_unlock` | – | no / yes | the same kit difference, most likely; not investigated |
+
+Whether `__stack_chk_*` is what crashed the app is UNVERIFIED (a device test of a build without them will tell).
+The comparison now lists every eboot's imported system symbols by name (ps4libdoc) and fails on any difference.

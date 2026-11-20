@@ -138,6 +138,41 @@ kb32 = 'wine/lib/wine/i386-windows/kernelbase.dll'
 w(f'| PE compiler (i386 kernelbase.dll) | {cc_all(O[kb32])} | {cc_all(U[kb32])} |')
 w('')
 
+# the system symbols each eboot imports (NID#library#module, as create-fself writes them), compared one by one:
+# any difference fails (no rule explains one: an import the console's loader resolves differently can stop the app
+# before it logs anything, as run #7's __stack_chk_guard and __stack_chk_fail most likely did)
+def nid_names():
+    names = {}
+    root = os.environ.get('PS4LIBDOC', os.path.expanduser('~/oo-src/ps4libdoc'))
+    import json, glob
+    for f in glob.glob(os.path.join(root, 'system', 'common', 'lib', '*.json')):
+        try:
+            d = json.load(open(f, encoding='utf-8-sig'))
+        except Exception:
+            continue
+        for m in d.get('modules', []):
+            for lib in m.get('libraries', []):
+                for sym in lib.get('symbols', []):
+                    if sym.get('encoded_id') and sym.get('name'):
+                        names.setdefault(sym['encoded_id'], sym['name'])
+    return names
+def imports(p):
+    out = subprocess.run(['strings', '-n', '13', p], capture_output=True, text=True).stdout
+    return set(m for m in out.splitlines() if re.fullmatch(r'[A-Za-z0-9+-]{11}#[A-Za-z0-9+-]+#[A-Za-z0-9+-]+', m))
+nidmap = nid_names()
+import_diffs = []
+w('## Imported system symbols')
+w('| | Official | This build | Only official | Only this build |')
+w('|---|---|---|---|---|')
+for e in ('wineps4.bin', 'eboot.bin'):
+    io, iu = imports(O[e]), imports(U[e])
+    name = lambda n: f'{nidmap.get(n.split("#")[0], "?")} ({n})'
+    oo, uu = sorted(io - iu), sorted(iu - io)
+    w(f'| {e} | {len(io)} | {len(iu)} | {", ".join(map(name, oo)) or "-"} | {", ".join(map(name, uu)) or "-"} |')
+    if oo or uu:
+        import_diffs.append((e, oo, uu, name))
+w('')
+
 # the differences, each explained or not
 w('## Differences')
 expl = []
@@ -261,6 +296,9 @@ w('| Status | Difference | Explanation |')
 w('|---|---|---|')
 for s, d, e in expl:
     w(f'| {"**UNEXPLAINED**" if s == "UNEXPLAINED" else s} | {d} | {e} |')
+for e, oo, uu, name in import_diffs:
+    expl.append(('UNEXPLAINED', f'{e}: imported system symbols',
+                 'official only: ' + (', '.join(map(name, oo)) or '-') + '; this build only: ' + (', '.join(map(name, uu)) or '-') + '.'))
 unexplained = sum(1 for s, _, _ in expl if s == 'UNEXPLAINED')
 w('')
 w(f'Result: {"every difference explained" if not unexplained else f"**{unexplained} unexplained difference(s)**"}.')

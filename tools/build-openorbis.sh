@@ -8,6 +8,11 @@
 #   - the host's clang 21 (apt.llvm.org) instead of PacBrew's own clang 12.0.1 build: ps4-kit compiles with
 #     clang 21 anyway (toolchain/env.sh CLANG_VER=21); clang 21 knows the x86_64-scei-ps4 triple;
 #   - compiler-rt builtins and libunwind from LLVM 21.1.6 (the libc++ version ps4-kit builds) instead of 12.0.1.
+#   - -fno-stack-protector for what is built with --target=x86_64-scei-ps4 (musl, compiler-rt, libunwind): clang 21
+#     turns the strong stack protector on by default for that triple (-stack-protector 2, __stack_chk_guard read
+#     through the GOT), which made wineps4.bin import __stack_chk_guard and __stack_chk_fail from libkernel; the
+#     official v00.71 imports neither, and run #7's package with them crashed at start on the console (CE-34878-0,
+#     nothing in crash.log). The rest of the kit builds for x86_64-pc-freebsd12-elf, which has no default protector.
 #
 #   tools/build-openorbis.sh [step...]     steps: fetch headers musl llvmrt fself vars libs pkgtool (default: all)
 set -euo pipefail
@@ -55,7 +60,7 @@ step_musl() {
     cd "$SRC/musl"
     make distclean >/dev/null 2>&1 || true
     ./configure --target=x86_64-scei-ps4 --prefix="$OO" --disable-shared \
-        CC="$CLANG" CFLAGS="--target=x86_64-scei-ps4 -fPIC -DPS4 -D_LIBUNWIND_IS_BAREMETAL=1 -DPS4_FLEXIBLE_MEMORY=1" > "$SRC/musl-configure.log" 2>&1
+        CC="$CLANG" CFLAGS="--target=x86_64-scei-ps4 -fno-stack-protector -fPIC -DPS4 -D_LIBUNWIND_IS_BAREMETAL=1 -DPS4_FLEXIBLE_MEMORY=1" > "$SRC/musl-configure.log" 2>&1
     make --quiet -j"$JOBS" > "$SRC/musl-build.log" 2>&1
     make install > "$SRC/musl-install.log" 2>&1
     ls -la "$OO/lib/libc.a" "$OO/lib/crt1.o"
@@ -128,7 +133,7 @@ step_llvmrt() {
         git -C "$l" fetch -q --depth 1 origin "refs/tags/llvmorg-$LLVM_VER"
         git -C "$l" -c advice.detachedHead=false checkout -q FETCH_HEAD
     fi
-    local flags="--target=x86_64-scei-ps4 -fPIC -D__PS4__ -D_LIBUNWIND_IS_BAREMETAL=1 -isystem $OO/include"
+    local flags="--target=x86_64-scei-ps4 -fno-stack-protector -fPIC -D__PS4__ -D_LIBUNWIND_IS_BAREMETAL=1 -isystem $OO/include"
     local b="$SRC/build-builtins"; rm -rf "$b"
     cmake -S "$l/compiler-rt/lib/builtins" -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_C_COMPILER="$CLANG" -DCMAKE_ASM_COMPILER="$CLANG" -DCMAKE_C_FLAGS="$flags" -DCMAKE_ASM_FLAGS="$flags" \
