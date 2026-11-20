@@ -68,6 +68,10 @@ stage() {
 # last one ("Mesa 26.0.8 (git-...)", in wineps4.bin: runs #11 and #12 differed by that alone, 261,862 bytes). The
 # authors and their dates come from the patch files.
 export GIT_COMMITTER_DATE="${GIT_COMMITTER_DATE:-2026-01-01T00:00:00+0000}"
+# The same moment as the build time the Wine PE files record (TimeDateStamp): lld-link writes it into the i386 files
+# when it links them, GNU strip into the x86_64 ones when make install strips them, both the current time unless
+# SOURCE_DATE_EPOCH is set (runs #13 and #14 differed only by that, and the header checksum it moves, in 1,628 files).
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1767225600}"   # 2026-01-01T00:00:00Z
 
 mesa() {
     bash "$HOME/ps4-kit/gpu/build-mesa.sh" > "$HOME/ps4kit-build/logs/mesa-run.log" 2>&1

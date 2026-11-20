@@ -17,7 +17,10 @@ case "$BUILD_OS" in
 esac
 if [ -z "$(docker ps -q --filter "name=^${NAME}$")" ]; then
     docker pull -q "$IMAGE"
-    docker run -d --name "$NAME" -v "$ROOT:$ROOT" -v "$HOME:$HOME" -w "$ROOT" "$IMAGE" sleep infinity > /dev/null
+    # one host name on every build: wineboot records it in the prefix (system.reg's ComputerName and Hostname,
+    # user.reg's LOGONSERVER and USERDOMAIN), which otherwise took the container's random id (runs #11-#14)
+    docker run -d --name "$NAME" --hostname "$NAME" -v "$ROOT:$ROOT" -v "$HOME:$HOME" -w "$ROOT" "$IMAGE" \
+        sleep infinity > /dev/null
     # (the checkout belongs to this machine's user: git refuses a repository of another owner without this)
     docker exec "$NAME" git config --system --add safe.directory '*' 2> /dev/null ||
         docker exec "$NAME" bash -c 'mkdir -p /etc && printf "[safe]\n\tdirectory = *\n" >> /etc/gitconfig'
@@ -29,7 +32,7 @@ if [ "${1:-}" = chown ]; then
 fi
 envs=()
 for v in WINEPS4_VERSION MINGW_THREADS WINE_CONFIGURE_EXTRA WINE_I386_CC WINE_GETTEXT WINE_PREFIX_USER JOBS \
-         GITHUB_SERVER_URL GITHUB_REPOSITORY GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_SHA GIT_COMMITTER_DATE; do
+         GITHUB_SERVER_URL GITHUB_REPOSITORY GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_SHA GIT_COMMITTER_DATE SOURCE_DATE_EPOCH; do
     [ -n "${!v+x}" ] && envs+=(-e "$v=${!v}")
 done
 exec docker exec "${envs[@]}" -e HOME="$HOME" -e BUILD_OS="$BUILD_OS" -e DEBIAN_FRONTEND=noninteractive \
