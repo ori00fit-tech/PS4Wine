@@ -33,6 +33,10 @@ deps() {
         wget -q --timeout=30 --tries=5 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && $SUDO bash /tmp/llvm.sh 21
     fi
     $SUDO apt-get install -y -q clang-21 lld-21 llvm-21 llvm-21-tools
+    # winebuild finds the i386 archiver as an unversioned llvm-ar or through an unversioned clang (tools/winebuild/
+    # utils.c, find_tool). GitHub's 24.04 image has both (its LLVM 18); a bare 26.04 has neither (run #10 stopped at
+    # libcompiler-rt.a): 26.04's clang, llvm and lld (1:21.1.6-71) are those names for the same clang-21.
+    if [ "$os" != 24.04 ]; then $SUDO apt-get install -y -q clang llvm lld; fi
     echo "host: $(. /etc/os-release && echo "$PRETTY_NAME"); $(clang-21 --version | head -1);" \
         "$(x86_64-w64-mingw32-ld --version | head -1); dotnet $(dotnet --version)"
     if [ "${MINGW_THREADS:-posix}" = posix ]; then
