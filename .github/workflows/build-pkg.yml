@@ -74,6 +74,7 @@ jobs:
           tools/ci-build.sh verify 2>&1 | tee -a out/ci-build.log
 
       - name: Compare with the official package
+        id: compare
         timeout-minutes: 40
         run: |
           set -o pipefail
@@ -97,6 +98,41 @@ jobs:
           name: build-logs-${{ github.run_number }}
           path: logs-out
           retention-days: 90
+
+      # A package whose comparison failed is NOT ACCEPTED and is never published; it is kept as an artifact, under that
+      # name, so that a specific build (its sha256 in SHA256SUMS) can be reviewed and, on a separate decision, tested.
+      # Only when the build and its verification passed and the comparison is what failed.
+      - name: Keep the NOT ACCEPTED package (comparison failed)
+        if: ${{ always() && steps.compare.outcome == 'failure' && hashFiles('out/*.pkg') != '' }}
+        run: |
+          mkdir -p not-accepted
+          {
+            echo "NOT ACCEPTED - comparison failed"
+            echo
+            echo "This package did not pass the comparison with the official WinePS4 v${WINEPS4_VERSION} package"
+            echo "(COMPARISON.md lists every unexplained difference). It is not a release, it is not accepted, and it"
+            echo "has not been run on a console. Keep the official package to go back to."
+            echo
+            echo "repository: ${GITHUB_REPOSITORY}"
+            echo "commit: ${GITHUB_SHA}"
+            echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (#${GITHUB_RUN_NUMBER})"
+            echo "inputs: version=${{ inputs.version }} mingw_threads=${{ inputs.mingw_threads }} publish=${{ inputs.publish }}"
+            echo "build configuration: WINE_I386_CC=${WINE_I386_CC} WINE_GETTEXT=${WINE_GETTEXT} MINGW_THREADS=${MINGW_THREADS} WINE_CONFIGURE_EXTRA=${WINE_CONFIGURE_EXTRA} HOME=${HOME} WINE_PREFIX_USER=${WINE_PREFIX_USER}"
+            echo
+            echo "sha256:"
+            cat out/SHA256SUMS
+          } > not-accepted/STATUS-NOT-ACCEPTED.txt
+          cp out/WinePS4-v*.pkg out/SHA256SUMS out/FILES.sha256 out/validate.txt out/VERIFY.md out/COMPARISON.md \
+             out/BUILD_MANIFEST.md out/stages.tsv not-accepted/
+          ( cd not-accepted && sha256sum -c --ignore-missing SHA256SUMS )
+          ls -la not-accepted
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.compare.outcome == 'failure' && hashFiles('out/*.pkg') != '' }}
+        with:
+          name: NOT-ACCEPTED_comparison-failed_WinePS4-v${{ inputs.version }}_run${{ github.run_number }}
+          path: not-accepted
+          compression-level: 0
+          retention-days: 30
 
       - name: Publish the UNTESTED DEVICE BUILD pre-release
         if: ${{ success() && inputs.publish }}
