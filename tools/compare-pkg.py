@@ -292,13 +292,15 @@ if other:
     expl.append(('UNEXPLAINED', f'{len(other)} other files with other bytes', ', '.join(other[:30])))
 if imp_o != imp_u:
     expl.append(('UNEXPLAINED', 'wineps4.bin imports', f'official {imp_o}, this build {imp_u}'))
+for e, oo, uu, name in import_diffs:
+    expl.append(('UNEXPLAINED', f'{e}: imported system symbols',
+                 'official only: ' + (', '.join(map(name, oo)) or '-') + '; this build only: ' + (', '.join(map(name, uu)) or '-') + '.'))
+# The summary table lists every row the result below counts (run #9's report counted the import rows above but
+# printed the table before adding them).
 w('| Status | Difference | Explanation |')
 w('|---|---|---|')
 for s, d, e in expl:
     w(f'| {"**UNEXPLAINED**" if s == "UNEXPLAINED" else s} | {d} | {e} |')
-for e, oo, uu, name in import_diffs:
-    expl.append(('UNEXPLAINED', f'{e}: imported system symbols',
-                 'official only: ' + (', '.join(map(name, oo)) or '-') + '; this build only: ' + (', '.join(map(name, uu)) or '-') + '.'))
 unexplained = sum(1 for s, _, _ in expl if s == 'UNEXPLAINED')
 w('')
 w(f'Result: {"every difference explained" if not unexplained else f"**{unexplained} unexplained difference(s)**"}.')
