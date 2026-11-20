@@ -226,15 +226,42 @@ if pe:
     # every differing PE file classified byte by byte (tools/pelib.py): a file is explained when none of its bytes
     # is "other" and its sections have the same names and sizes (debug sections excepted)
     kinds = ('padding', 'ctor-list', 'debug', 'symtab', 'timestamp', 'header', 'other')
-    per_area, worst = {}, []
+    per_area, worst, stale_copies = {}, [], []
+    shas = {}
+    def sha_of(p):
+        if p not in shas:
+            shas[p] = sha(p)
+        return shas[p]
+
+    def stale_copy(r):
+        # A prefix file whose official copy is not the official package's own lib file, shown file by file: this
+        # build's prefix copy is byte-identical to its own lib file L, the official prefix copy is not identical to
+        # the official L, and the two L are the same or clean. Then the difference is the official package's prefix
+        # holding another build of the file than its own lib (which build, the package does not say).
+        if not r.startswith('wine/prefix/'):
+            return None
+        n = r.rsplit('/', 1)[1]
+        for arch in ('x86_64-windows', 'i386-windows'):
+            L = f'wine/lib/wine/{arch}/{n}'
+            if L in O and L in U and sha_of(U[r]) == sha_of(U[L]) and sha_of(O[r]) != sha_of(O[L]):
+                if sha_of(O[L]) == sha_of(U[L]):
+                    return L
+                cl = pelib.classify(O[L], U[L])
+                if cl['other'] == 0 and not cl['layout']:
+                    return L
+        return None
+
     for r in pe:
         c = pelib.classify(O[r], U[r])
-        a = per_area.setdefault(area(r), {k: 0 for k in kinds} | {'files': 0, 'clean': 0})
+        a = per_area.setdefault(area(r), {k: 0 for k in kinds} | {'files': 0, 'clean': 0, 'stale': 0})
         a['files'] += 1
         for k in kinds:
             a[k] += c[k]
         if c['other'] == 0 and not c['layout']:
             a['clean'] += 1
+        elif (L := stale_copy(r)):
+            a['stale'] += 1
+            stale_copies.append((r, L, c['other']))
         else:
             worst.append((c['other'], r, c['layout']))
     w('## Wine PE files: what the differing bytes are')
@@ -244,21 +271,30 @@ if pe:
     w('| Area | Differing files | Clean | ' + ' | '.join(kinds) + ' |')
     w('|---|---|---|' + '---|' * len(kinds))
     for name, a in sorted(per_area.items()):
-        w(f'| {name} | {a["files"]} | {a["clean"]} | ' + ' | '.join(f'{a[k]:,}' for k in kinds) + ' |')
+        w(f'| {name} | {a["files"]} | {a["clean"]}' + (f' (+{a["stale"]} not the official lib file)' if a['stale'] else '') +
+          ' | ' + ' | '.join(f'{a[k]:,}' for k in kinds) + ' |')
     w('')
     if worst:
         w('Files with unexplained bytes (most first):')
         for o, r, lay in sorted(worst, reverse=True)[:25]:
             w(f'- `{r}`: {o:,} other bytes' + (f'; sections differ: {lay}' if lay else ''))
         w('')
+    if stale_copies:
+        expl.append(('EXPLAINED', f'{len(stale_copies)} prefix file(s) whose official copy is not the official lib file',
+                     '; '.join(f'`{r}` ({o:,} other bytes): this build\'s copy is byte-identical to its `{L}`, the '
+                               f'official copy is not identical to the official `{L}`, and the two `{L}` are clean'
+                               for r, L, o in stale_copies) + '.'))
     for name, a in sorted(per_area.items()):
-        if a['clean'] == a['files']:
+        if a['clean'] + a['stale'] == a['files']:
+            st = (f'; {a["stale"]} file(s) not the official lib file (row above), whose {sum(o for r, _, o in stale_copies if area(r) == name):,} '
+                  'other bytes that row explains') if a['stale'] else ''
             expl.append(('EXPLAINED', f'{a["files"]} PE files in {name} with other bytes',
-                         'every differing byte classified: ' + ', '.join(f'{k} {a[k]:,}' for k in kinds if a[k]) +
+                         f'{a["clean"]} clean{st}; bytes by kind: ' + ', '.join(f'{k} {a[k]:,}' for k in kinds if a[k]) +
                          ' (tools/pelib.py: alignment padding, the CTOR/DTOR list placement, debug info, the COFF '
-                         'symbol table, the build timestamp, the header fields those move); no other byte.'))
+                         'symbol table, the build timestamp, the header fields those move); no other byte' +
+                         (' outside those file(s).' if a['stale'] else '.')))
         else:
-            expl.append(('UNEXPLAINED', f'{a["files"] - a["clean"]} of {a["files"]} PE files in {name}',
+            expl.append(('UNEXPLAINED', f'{a["files"] - a["clean"] - a["stale"]} of {a["files"]} PE files in {name}',
                          f'{a["other"]:,} bytes that are none of the known kinds (the list above). Compilers '
                          f'({area_compiler_file(name)}): official {cc_all(O[area_compiler_file(name)])}, '
                          f'this build {cc_all(U[area_compiler_file(name)])}.'))

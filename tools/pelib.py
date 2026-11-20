@@ -8,7 +8,8 @@ recognised by what the bytes are, never by where they are alone:
               which no code reaches (it follows a ret or jmp). Seen: clang's i686 builds pad with 0f 1f 00 in the
               official package and with 90 90 90 here.
   ctor-list   mingw's __CTOR_LIST__/__DTOR_LIST__ sentinels (-1, 0 per list: ff x8 then 00 x8) placed in .rdata by one
-              linker and at the end of .text by another: only ff and 00 bytes differ, at most 32 per section.
+              linker and at the end of .text by another: in .text or .rdata, only whole aligned pointer-size words
+              (8 bytes, 4 for PE32) that are -1 on one side and 0 on the other, at most 32 bytes per section.
   debug       .debug_* sections (DWARF: build paths, the compiler's own identity string), not loaded at run time.
   symtab      the COFF symbol table and string table past the last section, not loaded at run time.
   timestamp   a 4-byte value equal, on each side, to that file's own COFF TimeDateStamp (the build time: the debug
@@ -104,7 +105,14 @@ def classify(path_a, path_b):
             continue
         diff = runs(d, e)
         count = sum(l for _, l in diff)
-        ff00 = all(d[i] in (0x00, 0xff) and e[i] in (0x00, 0xff) for st, l in diff for i in range(st, st + l))
+        # only whole pointer-size words, aligned, that are -1 (all ff) on one side and 0 on the other, in .text or
+        # .rdata: the sentinel words themselves. (Before run #12's review any ff/00 bytes counted, wherever they
+        # were: one changed 0xff byte in code passed as ctor-list.)
+        word = 8 if struct.unpack_from('<H', da, struct.unpack_from('<I', da, 0x3c)[0] + 24)[0] == 0x20b else 4
+        ff00 = n in ('.text', '.rdata') and all(
+            st % word == 0 and l % word == 0 and
+            all({d[k:k + word], e[k:k + word]} == {b'\xff' * word, b'\0' * word} for k in range(st, st + l, word))
+            for st, l in diff)
         if ff00 and count <= 32:
             res['ctor-list'] += count
             continue
