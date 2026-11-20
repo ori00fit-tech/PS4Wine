@@ -63,6 +63,12 @@ stage() {
     [ $rc = 0 ] || { echo "stage '$name' failed with exit code $rc" >&2; exit $rc; }
 }
 
+# One commit date for the patches git am applies (Mesa here, Wine in tools/build-wineps4.sh): git am stamps each
+# commit with the time it runs, so the commit hashes changed on every build, and Mesa's version string carries the
+# last one ("Mesa 26.0.8 (git-...)", in wineps4.bin: runs #11 and #12 differed by that alone, 261,862 bytes). The
+# authors and their dates come from the patch files.
+export GIT_COMMITTER_DATE="${GIT_COMMITTER_DATE:-2026-01-01T00:00:00+0000}"
+
 mesa() {
     bash "$HOME/ps4-kit/gpu/build-mesa.sh" > "$HOME/ps4kit-build/logs/mesa-run.log" 2>&1
     tail -1 "$HOME/ps4kit-build/logs/mesa-run.log"

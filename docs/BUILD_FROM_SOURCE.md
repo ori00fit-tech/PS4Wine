@@ -194,3 +194,20 @@ Unexplained: 5 (run #9: 7) - system.reg (mshtml's registration and the build mac
 4 `MimeType` values: without `shared-mime-info` winemenubuilder names file types `application/x-wine-extension-*`,
 `programs/winemenubuilder/winemenubuilder.c:2131`; now installed on 26.04), the official prefix's older `explorer.exe`
 copy, and the two eboots' imported symbols. `26.04` is now the workflow's default.
+
+## Run #12 and its review (2026-11-20, LOCAL VERIFIED unless marked)
+Run #12 (commit cff8754, 26.04 with `shared-mime-info`, GITHUB ACTIONS VERIFIED): user.reg differs from the official
+only by the build machine's name. Its `wineps4.bin` differs from run #11's (the same source) in 261,862 bytes, all from
+the Mesa commit hash in Mesa's version string (`git-02a4d19e11` vs `git-c79eb75487`): ps4-kit's `gpu/build-mesa.sh`
+applies its patches with `git am`, which dates each commit when it runs. What differs: the merged string block,
+reordered (235,027 bytes); the code's rip-relative references (12,276), absolute pointers (7,081), relocations (7,081 in
+SCE_DYNLIBDATA) and offsets (358) to the same strings; the ELF's SHA-256 in the SELF extended info (32). Of those
+offsets, 17 entries (20 bytes) point to the same strings in both builds but their table base is not identified.
+`tools/ci-build.sh` now gives `git am` one commit date (`GIT_COMMITTER_DATE`, Mesa and Wine), so the hash, and with
+it `wineps4.bin`, should be the same on every build: two runs of one commit check it.
+
+The comparison (commit 43375de): ctor-list only for whole aligned pointer-size words, -1 on one side and 0 on the
+other, in `.text`/`.rdata` (before, a 0xff byte of code changed to 0x00 passed); a prefix PE file explained, file by
+file, when this build's copy is byte-identical to its own lib file, the official copy is not the official lib file, and
+the two lib files are the same or clean (`explorer.exe`). Runs #11/#12 then: 4 unexplained (system.reg, user.reg's
+machine name, the two eboots' imported symbols); run #9: 7.

@@ -35,7 +35,9 @@ do_wine() {
     if [ ! -d "$SRC/.git" ]; then
         mkdir -p "$WB/src"
         git clone -q --branch wine-11.0 --depth 1 https://gitlab.winehq.org/wine/wine.git "$SRC"
-        git -C "$SRC" -c user.name=WinePS4 -c user.email=wineps4@localhost am -q "$ROOT/patches/wine-ps4.patch"
+        # (a fixed commit date, as tools/ci-build.sh: the same commit hash on every build)
+        GIT_COMMITTER_DATE="${GIT_COMMITTER_DATE:-2026-01-01T00:00:00+0000}" \
+            git -C "$SRC" -c user.name=WinePS4 -c user.email=wineps4@localhost am -q "$ROOT/patches/wine-ps4.patch"
     fi
     echo "wine: $(git -C "$SRC" log --oneline wine-11.0..HEAD 2>/dev/null | wc -l) WinePS4 commits on wine-11.0"
     local i386_cc="${WINE_I386_CC-clang-21}"   # (unset: clang-21; set empty: configure's own choice)
