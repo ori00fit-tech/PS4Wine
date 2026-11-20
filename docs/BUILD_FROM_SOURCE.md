@@ -211,3 +211,24 @@ other, in `.text`/`.rdata` (before, a 0xff byte of code changed to 0x00 passed);
 file, when this build's copy is byte-identical to its own lib file, the official copy is not the official lib file, and
 the two lib files are the same or clean (`explorer.exe`). Runs #11/#12 then: 4 unexplained (system.reg, user.reg's
 machine name, the two eboots' imported symbols); run #9: 7.
+
+## Reproducibility: runs #13-#16 (2026-11-20)
+Runs #13 and #14 (commit ae93429, one `GIT_COMMITTER_DATE`): the same `wineps4.bin` and `eboot.bin`; 1,628 Wine PE
+files differed only by `TimeDateStamp` and the header checksum it moves (lld-link writes it into the i386 files, GNU
+strip at `make install` into the x86_64 ones, both the current time unless `SOURCE_DATE_EPOCH` is set).
+
+Runs #15 and #16 (commit beef6e9: `SOURCE_DATE_EPOCH=1767225600`, build container host name `wineps4-build`), GITHUB
+ACTIONS VERIFIED, compared file by file LOCAL VERIFIED: **2,066 of the 2,070 files are byte-identical**, among them
+`wineps4.bin` (`24cc60a6...`), `eboot.bin` (`a155defd...`) and every Wine PE file. The other four are the prefix's
+registry and its stamp, which wineboot makes differently on every run by design:
+- `.update-timestamp`: when the prefix was made.
+- `user.reg`, `userdef.reg`: only the keys' write times (`[key] <seconds>`, `#time=`).
+- `system.reg`: the keys' write times, and 8 values: `MachineGuid` (random, `dlls/advapi32/crypt.c`), the HID and
+  WINEBUS devices' `ContainerId` (a performance counter value, `dlls/winebus.sys/main.c` make_unique_container_id),
+  the GPU's `VideoID` (random, `dlls/win32u/sysparams.c` uuid_create) and the monitor's GPU LUID property
+  (`{CA085853-...}\0001`, assigned at run time).
+
+So the build is reproducible for everything the console runs; the prefix's registry is not, and is documented here
+value by value rather than normalised. The PKG files differ because these four do. The comparison with the official
+package: 4 unexplained (system.reg's mshtml registration, user.reg's machine name, the two eboots' imported symbols).
+Not run on a console.
