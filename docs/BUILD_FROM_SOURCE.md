@@ -150,3 +150,32 @@ packages' eboots (LOCAL VERIFIED):
 
 Whether `__stack_chk_*` is what crashed the app is UNVERIFIED (a device test of a build without them will tell).
 The comparison now lists every eboot's imported system symbols by name (ps4libdoc) and fails on any difference.
+
+## Run #9 and its review: the official package's build machine (2026-11-20)
+Run #9 (commit 8941254, GITHUB ACTIONS VERIFIED): every build stage and check passed; neither `eboot.bin` nor
+`wineps4.bin` imports `__stack_chk_guard`/`__stack_chk_fail` any more (checked in the PKG CI made; PKG sha256
+`9a3024c7a935ed136e1e0a243a9e1148e5b2f5a7160d7b057449ee4e7f9e982f`). Not run on a console. The comparison still
+fails, 7 unexplained differences. What the review found (LOCAL VERIFIED):
+
+- **The tools in the official PE files are Ubuntu 26.04's.** Its i386 DLLs say `Ubuntu clang version 21.1.8
+  (6ubuntu1)`: 26.04's `clang-21` is `1:21.1.8-6ubuntu1`, and 24.04 has no clang 21 (this build used apt.llvm.org's).
+  Its 741 x86_64 DLLs have linker version 2.45: 26.04's `binutils-mingw-w64-x86-64` is built from binutils
+  2.45.90; 24.04's from 2.41.90, which this build's 2.41 files show. GCC is the same in both (13.2.0-6ubuntu1, posix).
+  The linker version also brings a Load Config directory (320 bytes) into every official x86_64 DLL, and none here.
+- **The prefix's PE files**: 91 of the 96 that differ are each package's own copies of its lib files; the other five
+  are an older `explorer.exe` copy in the official prefix and four 16-bit files Wine extracts from the i386 builtins
+  (`dlls/setupapi/fakedll.c`). They all come down to the lib differences.
+- **system.reg**: the 595 lines only here are mshtml's registration (every extension and CLSID in them is in
+  `dlls/mshtml/mshtml.inf` or `mshtml_classes.idl`); the 18 changed lines are the build machine (name, CPU, time zone,
+  `MachineGuid`, device ids). Why the official prefix has no mshtml registration is not known. **user.reg**: the
+  machine name only.
+- **Imports**: `madvise` is OpenSSL's secure heap. Kit 1f2bd79 wraps `pthread_once` in every link (since its first
+  commit), so this build never imports it; the official binaries do, and its kit (56b3d86) is not public.
+  `pthread_rwlock_*`: in 1f2bd79 only as names in `runtime/ps4_sampler.cpp`. Both unexplained.
+- **A gap in the comparison, fixed (stricter only)**: `tools/pelib.py` took the end of the PE headers from the smallest
+  section offset, 0 for a section without file data (`.bss`), and skipped the header check of 655 x86_64 DLLs. The
+  "650 of 741 clean" of runs #6-#9 was wrong: 0 of 741 are, once the headers are compared. Still 7 unexplained.
+
+To test the build machine as the cause, `BUILD_OS=26.04` (the workflow's `build_os` input) runs the whole build in an
+`ubuntu:26.04` container (`tools/ci-run.sh`): Ubuntu's own clang-21 and mingw binutils 2.45, and .NET 10 for PkgTool
+(26.04 has no .NET 8). `24.04` stays the default and builds as before.

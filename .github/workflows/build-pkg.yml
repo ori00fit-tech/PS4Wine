@@ -16,6 +16,11 @@ on:
         default: "posix"
         type: choice
         options: [posix, win32]
+      build_os:
+        description: "Ubuntu release to build on: 24.04 (this machine) or 26.04 (a container: the official v00.71's clang-21 and mingw binutils)"
+        default: "24.04"
+        type: choice
+        options: ["24.04", "26.04"]
       publish:
         description: "Publish the PKG as an UNTESTED DEVICE BUILD pre-release (only if every check passed)"
         default: false
@@ -30,6 +35,7 @@ jobs:
     timeout-minutes: 360
     env:
       WINEPS4_VERSION: ${{ inputs.version }}
+      BUILD_OS: ${{ inputs.build_os }}
       MINGW_THREADS: ${{ inputs.mingw_threads }}
       WINE_CONFIGURE_EXTRA: --disable-tests
       # The Windows side as the official v00.71 was built (tools/build-wineps4.sh): i386 with clang, no translations
@@ -61,31 +67,32 @@ jobs:
         run: |
           mkdir -p out
           set -o pipefail
-          tools/ci-build.sh deps 2>&1 | tee out/ci-build.log
+          tools/ci-run.sh deps 2>&1 | tee out/ci-build.log
 
       - name: Build
         timeout-minutes: 300
         run: |
           set -o pipefail
-          tools/ci-build.sh all 2>&1 | tee -a out/ci-build.log
+          tools/ci-run.sh all 2>&1 | tee -a out/ci-build.log
 
       - name: Verify the package
         timeout-minutes: 30
         run: |
           set -o pipefail
-          tools/ci-build.sh verify 2>&1 | tee -a out/ci-build.log
+          tools/ci-run.sh verify 2>&1 | tee -a out/ci-build.log
 
       - name: Compare with the official package
         id: compare
         timeout-minutes: 40
         run: |
           set -o pipefail
-          tools/ci-build.sh compare 2>&1 | tee -a out/ci-build.log
+          tools/ci-run.sh compare 2>&1 | tee -a out/ci-build.log
 
       - name: Manifest and logs
         if: always()
         run: |
-          tools/ci-build.sh manifest 2>&1 | tee -a out/ci-build.log || true
+          tools/ci-run.sh manifest 2>&1 | tee -a out/ci-build.log || true
+          tools/ci-run.sh chown || true
           df -h / | tee -a out/ci-build.log
           mkdir -p logs-out
           cp out/*.md out/*.tsv out/SHA256SUMS out/FILES.sha256 out/validate.txt out/ci-build.log logs-out/ 2>/dev/null || true
@@ -118,7 +125,7 @@ jobs:
             echo "repository: ${GITHUB_REPOSITORY}"
             echo "commit: ${GITHUB_SHA}"
             echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (#${GITHUB_RUN_NUMBER})"
-            echo "inputs: version=${{ inputs.version }} mingw_threads=${{ inputs.mingw_threads }} publish=${{ inputs.publish }}"
+            echo "inputs: version=${{ inputs.version }} mingw_threads=${{ inputs.mingw_threads }} build_os=${{ inputs.build_os }} publish=${{ inputs.publish }}"
             echo "build configuration: WINE_I386_CC=${WINE_I386_CC} WINE_GETTEXT=${WINE_GETTEXT} MINGW_THREADS=${MINGW_THREADS} WINE_CONFIGURE_EXTRA=${WINE_CONFIGURE_EXTRA} HOME=${HOME} WINE_PREFIX_USER=${WINE_PREFIX_USER}"
             echo
             echo "sha256:"
@@ -153,7 +160,7 @@ jobs:
             echo "Keep the official package at hand to go back to."
             echo
             echo "- Upstream: iHaiDeeZ/WinePS4 v${WINEPS4_VERSION}, built from this repository at ${GITHUB_SHA}"
-            echo "- mingw-w64 variant: ${MINGW_THREADS}"
+            echo "- mingw-w64 variant: ${MINGW_THREADS}; built on Ubuntu ${BUILD_OS}"
             echo "- PKG sha256: \`${SHA}\`"
             echo "- Every source commit, archive checksum, download retry and build stage: BUILD_MANIFEST.md"
             echo "- Full build log: ci-build.log.gz; all logs: build-logs.tar.gz"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WinePS4 Enhanced: the whole package from public sources on a fresh Ubuntu 24.04 x86_64 machine (GitHub Actions'
-# ubuntu-24.04, or a Claude Code cloud session), docs/BUILD_FROM_SOURCE.md in one command.
+# ubuntu-24.04, or a Claude Code cloud session) or in an Ubuntu 26.04 container (tools/ci-run.sh), docs/BUILD_FROM_SOURCE.md in one command.
 #   sudo apt-get ... (tools/ci-build.sh deps does it), then:
 #   WINEPS4_VERSION=00.71 tools/ci-build.sh [deps] [all]
 #
@@ -20,12 +20,21 @@ deps() {
     # (run #2 stood 24 min in this step, run #1 took 1 min: every apt download gets a timeout and retries)
     printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' |
         $SUDO tee /etc/apt/apt.conf.d/80-wineps4-retries > /dev/null
+    # Ubuntu 24.04: clang 21 from apt.llvm.org, .NET 8. Ubuntu 26.04 (BUILD_OS=26.04, tools/ci-run.sh): its own
+    # clang-21 (1:21.1.8-6ubuntu1, the official v00.71's i386 compiler) and mingw binutils 2.45 (its x86_64 linker),
+    # .NET 10 (26.04 has no .NET 8; tools/build-openorbis.sh builds PkgTool for the SDK it finds).
+    local os; os=$(. /etc/os-release && echo "$VERSION_ID")
     $SUDO apt-get update -q
     $SUDO apt-get install -y -q flex bison mingw-w64 meson ninja-build cmake pkg-config autoconf automake libtool \
         gettext rsync python3-mako python3-yaml python3-venv glslang-tools nasm unzip zip xz-utils file patch \
-        gcc-multilib libc6-dev-i386 dotnet-sdk-8.0 gnupg wget curl
-    wget -q --timeout=30 --tries=5 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && $SUDO bash /tmp/llvm.sh 21
+        gcc-multilib libc6-dev-i386 gnupg wget curl git python3 ca-certificates make gcc g++ \
+        "$([ "$os" = 24.04 ] && echo dotnet-sdk-8.0 || echo dotnet-sdk-10.0)"
+    if [ "$os" = 24.04 ]; then
+        wget -q --timeout=30 --tries=5 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && $SUDO bash /tmp/llvm.sh 21
+    fi
     $SUDO apt-get install -y -q clang-21 lld-21 llvm-21 llvm-21-tools
+    echo "host: $(. /etc/os-release && echo "$PRETTY_NAME"); $(clang-21 --version | head -1);" \
+        "$(x86_64-w64-mingw32-ld --version | head -1); dotnet $(dotnet --version)"
     if [ "${MINGW_THREADS:-posix}" = posix ]; then
         local t
         for t in x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++ i686-w64-mingw32-gcc i686-w64-mingw32-g++; do

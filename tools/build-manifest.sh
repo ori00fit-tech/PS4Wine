@@ -69,7 +69,7 @@ w ""
 w "## Build configuration"
 w "| Setting | Value |"
 w "|---|---|"
-for v in WINEPS4_VERSION MINGW_THREADS WINE_CONFIGURE_EXTRA WINE_I386_CC WINE_GETTEXT WINE_PREFIX_USER PS4_KIT_COMMIT \
+for v in BUILD_OS WINEPS4_VERSION MINGW_THREADS WINE_CONFIGURE_EXTRA WINE_I386_CC WINE_GETTEXT WINE_PREFIX_USER PS4_KIT_COMMIT \
          PS4LIBDOC_COMMIT OPENSSL_VER LLVM_VER CLANG_VER JOBS HOME USER; do
     if [ -n "${!v+x}" ]; then w "| \`$v\` | \`${!v}\` |"; else w "| \`$v\` | (unset: the scripts' default) |"; fi
 done

@@ -168,7 +168,7 @@ step_bin() {
 
 # pkgtool (PacBrew ps4-openorbis-pkgtools 0.2.231: LibOrbisPkg 594021f's PkgTool.Core) with ps4-kit's three fixes
 # (scripts/build-pkgtool.sh at ps4-kit HEAD: PlayGo chunk hash slack past ~4 GB, PKG_EXTRA_CONTENT_FLAGS, PFSC
-# inflate loop), on the .NET 8 SDK (Ubuntu's dotnet-sdk-8.0) instead of .NET 6, into $OO/bin/linux/pkgtool and
+# inflate loop), on the installed .NET SDK (8 on Ubuntu 24.04, 10 on 26.04) instead of .NET 6, into $OO/bin/linux/pkgtool and
 # PacBrew's PkgTool.Core wrapper
 step_pkgtool() {
     command -v dotnet >/dev/null || { echo "no dotnet: apt-get install dotnet-sdk-8.0" >&2; return 1; }
@@ -182,7 +182,9 @@ step_pkgtool() {
         LibOrbisPkg/PFS/PFSCReader.cs
     grep -q "slack: the estimate" LibOrbisPkg/PKG/PkgBuilder.cs && grep -q PKG_EXTRA_CONTENT_FLAGS LibOrbisPkg/PKG/PkgBuilder.cs &&
         grep -q "may return a partial block" LibOrbisPkg/PFS/PFSCReader.cs || { echo "pkgtool: a fix did not apply" >&2; return 1; }
-    sed -i 's|<TargetFramework>net6.0</TargetFramework>|<TargetFramework>net8.0</TargetFramework>|' \
+    # the SDK's own .NET (8 on Ubuntu 24.04, 10 on 26.04, which has no .NET 8): only the tool's runtime
+    local tfm; tfm="net$(dotnet --version | cut -d. -f1).0"
+    sed -i "s|<TargetFramework>net6.0</TargetFramework>|<TargetFramework>$tfm</TargetFramework>|" \
         PkgTool.Core/PkgTool.Core.csproj LibOrbisPkg.Core/LibOrbisPkg.Core.csproj
     DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 DOTNET_NOLOGO=1 \
         dotnet publish PkgTool.Core/PkgTool.Core.csproj -r linux-x64 --self-contained false -c Release \
