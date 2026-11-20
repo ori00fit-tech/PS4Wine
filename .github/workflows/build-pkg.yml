@@ -55,7 +55,9 @@ jobs:
           df -h /
 
       - name: Host packages
-        timeout-minutes: 20
+        # 469 MB of apt packages: 1-2 min on a fast mirror, 11 min in run #7, over 20 min in run #8 (a slow
+        # us-east-2.ec2.archive.ubuntu.com, ~50 KB/s at times). Still bounded, so a stuck mirror stops the run.
+        timeout-minutes: 45
         run: |
           mkdir -p out
           set -o pipefail
