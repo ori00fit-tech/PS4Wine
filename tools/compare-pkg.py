@@ -267,7 +267,8 @@ if eb:
     expl.append(('EXPLAINED', 'eboot.bin, wineps4.bin bytes',
                  'built from the same WinePS4 source with ps4-kit 1f2bd79 (upstream: 56b3d86, not public), clang 21 and '
                  'a toolchain rebuilt from source; wineps4.bin carries the RADV build id of the public kit\'s Mesa patch '
-                 'files. Same imports and version string (above).'))
+                 'files. Same imported libraries and version string (above); the imported symbols are compared on their own '
+                 '("imported system symbols" rows).'))
 # system32-from-lib.txt: explained only when its difference is exactly the stale prefix files above
 lst = 'wine/system32-from-lib.txt'
 if lst in diff_files:

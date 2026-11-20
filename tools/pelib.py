@@ -143,7 +143,9 @@ def classify(path_a, path_b):
             if seen:
                 allowed |= set(range(sto + i * 40 + 12, sto + i * 40 + 16))  # VirtualAddress
             seen = seen or (n.startswith('.debug') and n in mb and mb[n][0] != sa[i][1])
-    first_a = min(o for _, _, o, _ in sa) if sa else 0
+    # sections with no data in the file (.bss: PointerToRawData 0) say nothing about where the headers end; counting
+    # them made first_a 0 and skipped this whole check (run #9: 655 x86_64 DLLs' linker version and Load Config)
+    first_a = min((o for _, _, o, _ in sa if o), default=0)
     for i in range(min(first_a, len(da), len(db))):
         if da[i] != db[i]:
             res['header' if i in allowed else 'other'] += 1
